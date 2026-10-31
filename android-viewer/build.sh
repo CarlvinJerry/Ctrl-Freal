@@ -10,10 +10,11 @@ test -f "$ANDROID_JAR" && test -f "$D8_JAR"
 mkdir -p build/gen build/classes build/dex
 find build/classes -type f -name '*.class' -delete
 aapt package -f -m -J build/gen -M AndroidManifest.xml -S res -I "$ANDROID_JAR"
-javac -g:none -source 8 -target 8 -classpath "$ANDROID_JAR" -d build/classes \
+javac -g -source 8 -target 8 -classpath "$ANDROID_JAR" -d build/classes \
   src/com/ctrlfreak/magicmirror/ViewerActivity.java \
   src/com/ctrlfreak/magicmirror/FitWebViewClient.java \
   src/com/ctrlfreak/magicmirror/MirrorDreamService.java \
+  src/com/ctrlfreak/magicmirror/MirrorProbe.java \
   build/gen/com/ctrlfreak/magicmirror/R.java
 jar cf build/classes.jar -C build/classes .
 java -cp "$D8_JAR" com.android.tools.r8.D8 --lib "$ANDROID_JAR" \

@@ -1,4 +1,4 @@
-# Pairing, authentication, and TV configuration
+# Authentication, pairing, and local state
 .remote_pin
 .session_secret
 client_cert.pem
@@ -16,9 +16,9 @@ preferences.json.new
 .guest_access.json.new
 .screensaver_previous.json
 .screensaver_previous.json.new
+.jack_sparrow.json
+.jack_sparrow.json.new
 android-viewer/build/
-
-# Local runtime and editor files
 __pycache__/
 *.py[cod]
 .venv/
@@ -28,8 +28,6 @@ venv/
 *.log
 .DS_Store
 .vscode/
-
-# Local snapshots and previous incremental patches
 backups/
 *.before-*
 *.backup

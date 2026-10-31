@@ -18,6 +18,7 @@ from flask import (
 from waitress import serve
 from androidtvremote2 import AndroidTVRemote
 from version import APP_VERSION
+from jack_sparrow import JackSparrow
 
 BASE = Path(__file__).resolve().parent
 CONFIG = BASE / "tvs.json"
@@ -29,9 +30,10 @@ SECRET = (BASE / ".session_secret").read_text().strip()
 PORT = int(os.getenv("REMOTE_PORT", "8091"))
 MAGICMIRROR_URL = os.getenv("REMOTE_MAGICMIRROR_URL", "http://192.168.1.21:8080/")
 VIEWER_PACKAGE = "com.ctrlfreak.magicmirror"
-VIEWER_VERSION_CODE = 7
+VIEWER_VERSION_CODE = 8
 VIEWER_DREAM = f"{VIEWER_PACKAGE}/.MirrorDreamService"
 VIEWER_APK = BASE / "static" / "magicmirror-viewer.apk"
+JACK = JackSparrow(BASE, media_root=os.getenv("JACK_MEDIA_ROOT", "/media/carlvinjerry/Views"))
 
 DEFAULT_TVS = {
     "tcl": {
@@ -965,6 +967,120 @@ def set_screensaver(tv_id):
         return jsonify(error="Could not update TV screensaver"), 503
 
 
+@app.get("/api/jack")
+def jack_status():
+    if not authenticated():
+        return jsonify(error="Unauthorized"), 401
+    state = JACK.read()
+    try:
+        JACK.rpc("session-get")
+        jobs = JACK.jobs()
+        available = True
+    except (OSError, ValueError, RuntimeError, KeyError, TimeoutError):
+        jobs = []
+        available = False
+    return jsonify(feeds=state["feeds"], tracked=state["tracked"], matches=state["matches"], jobs=jobs,
+                   client_available=available)
+
+
+@app.get("/api/jack/search")
+def jack_search():
+    if not authenticated():
+        return jsonify(error="Unauthorized"), 401
+    try:
+        return jsonify(JACK.discover(request.args.get("q", "")[:80],
+                                     request.args.get("quality", "any"),
+                                     request.args.get("source", "all")))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+
+
+@app.post("/api/jack/feed")
+def jack_feed():
+    if not valid_post():
+        return jsonify(error="Unauthorized or invalid session"), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        feeds = JACK.add_feed(data.get("url", ""))
+        threading.Thread(target=jack_refresh_matches_safely, daemon=True).start()
+        return jsonify(feeds=feeds)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    except (OSError, TimeoutError):
+        return jsonify(error="Could not read that feed"), 503
+
+
+@app.post("/api/jack/track")
+def jack_track():
+    if not valid_post():
+        return jsonify(error="Unauthorized or invalid session"), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        tracked = JACK.track(data.get("title", ""), data.get("category", "series"))
+        threading.Thread(target=jack_refresh_matches_safely, daemon=True).start()
+        return jsonify(tracked=tracked)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+
+
+@app.post("/api/jack/download")
+def jack_download():
+    if not valid_post():
+        return jsonify(error="Unauthorized or invalid session"), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        job_id = JACK.add(data.get("source"), data.get("category"), data.get("quality"),
+                          title=data.get("title"), identifier=data.get("id"), url=data.get("url"))
+        return jsonify(ok=True, id=job_id)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    except (OSError, RuntimeError, KeyError, TimeoutError) as exc:
+        app.logger.warning("Jack Sparrow could not add download: %s", type(exc).__name__)
+        return jsonify(error="Torrent client or source unavailable"), 503
+
+
+@app.post("/api/jack/manage")
+def jack_manage():
+    if not valid_post():
+        return jsonify(error="Unauthorized or invalid session"), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        JACK.manage(data.get("id"), data.get("action"))
+        return jsonify(ok=True)
+    except (ValueError, TypeError) as exc:
+        return jsonify(error=str(exc)), 400
+    except (OSError, RuntimeError, KeyError, TimeoutError):
+        return jsonify(error="Torrent client unavailable"), 503
+
+
+@app.post("/api/jack/remove-feed")
+def jack_remove_feed():
+    if not valid_post():
+        return jsonify(error="Unauthorized or invalid session"), 403
+    data = request.get_json(silent=True) or {}
+    return jsonify(feeds=JACK.remove_feed(data.get("url", "")))
+
+
+@app.post("/api/jack/untrack")
+def jack_untrack():
+    if not valid_post():
+        return jsonify(error="Unauthorized or invalid session"), 403
+    data = request.get_json(silent=True) or {}
+    return jsonify(tracked=JACK.untrack(data.get("title", ""), data.get("category", "")))
+
+
+@app.post("/api/jack/match-seen")
+def jack_match_seen():
+    if not valid_post():
+        return jsonify(error="Unauthorized or invalid session"), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        JACK.mark_match_seen(data.get("key", ""))
+        return jsonify(ok=True)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+
+
 @app.get("/api/apps/<tv_id>")
 def apps_for_tv(tv_id):
     if not authenticated():
@@ -1186,6 +1302,27 @@ def command():
             detail=type(exc).__name__
         ), 503
 
+def jack_import_loop():
+    next_search = 0
+    while True:
+        try:
+            JACK.jobs()
+        except (OSError, RuntimeError, ValueError, KeyError, TimeoutError) as exc:
+            app.logger.debug("Jack Sparrow background check: %s", type(exc).__name__)
+        if time.monotonic() >= next_search:
+            jack_refresh_matches_safely()
+            next_search = time.monotonic() + 600
+        time.sleep(60)
+
+
+def jack_refresh_matches_safely():
+    try:
+        JACK.refresh_matches()
+    except (OSError, RuntimeError, ValueError, KeyError, TimeoutError) as exc:
+        app.logger.debug("Jack Sparrow release check: %s", type(exc).__name__)
+
+
 if __name__ == "__main__":
+    threading.Thread(target=jack_import_loop, name="jack-sparrow-import", daemon=True).start()
     print(f"TCL Remote v2: http://192.168.1.21:{PORT}")
     serve(app, host="0.0.0.0", port=PORT, threads=8)

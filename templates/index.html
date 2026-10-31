@@ -152,6 +152,27 @@
   <h3>Favorite shortcuts</h3>
   <p>Choose which apps appear first.</p>
   <div id="favoriteList"></div>
+  <div class="jackSection">
+    <div class="sectionHeading"><div><span class="eyebrow">YOUR MEDIA QUEUE</span><h2>Jack Sparrow</h2></div></div>
+    <p class="hint">Browse Archive releases and your saved torrent feeds. Review each result and choose its Plex library before downloading.</p>
+    <div class="jackSearch"><input id="jackQuery" type="search" placeholder="Search titles or episodes" aria-label="Search media"><button id="jackSearchButton" type="button">Search</button></div>
+    <div class="jackFilters"><select id="jackSource" aria-label="Torrent source"><option value="all">All sources</option><option value="archive">Archive catalog</option><option value="feeds">My feeds</option></select><select id="jackQuality" aria-label="Quality"><option value="any">Any quality</option><option value="480p">480p</option><option value="720p">720p</option><option value="1080p">1080p</option><option value="2160p">4K</option></select></div>
+    <p id="jackMessage" class="hint" role="status"></p>
+    <div id="jackResults" class="jackList"></div>
+    <h3>Track a title</h3>
+    <p class="hint">Tracked names are highlighted when a saved feed or Archive catalog has a match. Downloads always need your approval.</p>
+    <div class="jackSearch"><input id="jackTrackTitle" placeholder="Series or movie title" maxlength="100"><select id="jackTrackType" aria-label="Media type"><option value="series">Series</option><option value="movie">Movie</option><option value="music">Music</option><option value="other">Other</option></select><button id="jackTrackButton" type="button">Track</button></div>
+    <div id="jackTracked" class="jackList"></div>
+    <h3>Tracked matches</h3>
+    <div id="jackMatches" class="jackList"></div>
+    <h3>Add a source</h3>
+    <div class="jackSearch"><input id="jackFeedUrl" type="url" placeholder="Torrent RSS feed URL" aria-label="Torrent RSS feed URL"><button id="jackFeedButton" type="button">Add feed</button></div>
+    <div id="jackFeeds" class="jackList"></div>
+    <div class="jackSearch"><input id="jackMagnet" placeholder="Paste a magnet link" aria-label="Magnet link"><button id="jackMagnetButton" type="button">Review</button></div>
+    <h3>Downloads</h3>
+    <p id="jackClientStatus" class="hint"></p>
+    <div id="jackJobs" class="jackList"></div>
+  </div>
 </section>
 
 <section id="settings" class="panel">
@@ -254,6 +275,14 @@
     <button class="primary" id="finishPair" type="button">Finish pairing</button>
   </div>
   <p id="pairMessage" role="status" aria-live="polite"></p>
+</dialog>
+<dialog id="jackDialog" aria-labelledby="jackDialogTitle">
+  <h2 id="jackDialogTitle">Review download</h2>
+  <p id="jackDialogSource" class="hint"></p>
+  <label>Plex library<select id="jackDownloadType"><option value="movie">Movies</option><option value="series">Series</option><option value="music">Music (add Plex library first)</option><option value="other">Other videos (add Plex library first)</option></select></label>
+  <label>Preferred quality<select id="jackDownloadQuality"><option value="any">Any available</option><option value="480p">480p</option><option value="720p">720p</option><option value="1080p">1080p</option><option value="2160p">4K</option></select></label>
+  <p class="hint">Check the source and your right to download it. Import starts after the download completes.</p>
+  <div class="jackActions"><button id="jackCancelDownload" type="button">Cancel</button><button id="jackConfirmDownload" class="primary" type="button">Start download</button></div>
 </dialog>
 <script src="{{ url_for('static', filename='remote.js') }}"></script>
 </body>

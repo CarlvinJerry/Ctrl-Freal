@@ -211,3 +211,19 @@ body #apps #refreshApps { min-height:44px; padding:9px 16px; margin:0 0 15px; }
 #sceneList .sceneItem button { min-height:38px; padding:7px 12px; flex:none; }
 #settings :is(#saveScene,#createGuest,#revokeGuest,#toggleScreensaver) { min-height:44px; padding:10px 16px; margin:5px 0 9px; }
 #guestPin { font-size:22px; font-weight:700; letter-spacing:.12em; user-select:all; }
+.jackSection { margin-top: 2.25rem; padding-top: 1.25rem; border-top: 1px solid var(--border, rgba(255,255,255,.12)); }
+.jackSection .sectionHeading { margin-bottom: .5rem; }
+.jackSearch, .jackFilters, .jackActions { display: flex; gap: .55rem; margin: .7rem 0; align-items: stretch; }
+.jackSearch input { min-width: 0; flex: 1; }
+.jackSearch select { max-width: 7.5rem; }
+.jackFilters select { flex: 1; min-width: 0; }
+.jackList { display: grid; gap: .55rem; margin: .75rem 0 1.4rem; }
+.jackCard { display: grid; gap: .3rem; padding: .75rem .9rem; border: 1px solid var(--border, rgba(255,255,255,.12)); border-radius: 1rem; background: rgba(127,145,180,.1); overflow-wrap: anywhere; }
+.jackCard strong { line-height: 1.3; }
+.jackCard small { opacity: .78; line-height: 1.35; }
+.jackCard button { justify-self: start; margin-top: .25rem; }
+#jackDialog { width: min(92vw, 28rem); border-radius: 1.25rem; padding: 1.25rem; }
+#jackDialog::backdrop { background: rgba(0,0,0,.7); }
+#jackDialog label { display: grid; gap: .35rem; margin: .8rem 0; }
+.jackActions { justify-content: flex-end; margin-top: 1.2rem; }
+@media (max-width: 420px) { .jackSearch { flex-wrap: wrap; } .jackSearch input { flex-basis: 100%; } .jackSearch button { flex: 1; } }

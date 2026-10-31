@@ -1,0 +1,13 @@
+{
+  "download-dir": "/media/carlvinjerry/Views/.jack-sparrow-downloads",
+  "incomplete-dir": "/media/carlvinjerry/Views/.jack-sparrow-downloads/.incomplete",
+  "incomplete-dir-enabled": true,
+  "rename-partial-files": true,
+  "rpc-bind-address": "127.0.0.1",
+  "rpc-port": 9091,
+  "rpc-whitelist": "127.0.0.1",
+  "rpc-whitelist-enabled": true,
+  "rpc-authentication-required": false,
+  "rpc-host-whitelist-enabled": false,
+  "umask": 2
+}

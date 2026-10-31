@@ -1,0 +1,17 @@
+[Unit]
+Description=Ctrl Freak private Transmission daemon
+After=network-online.target
+Wants=network-online.target
+RequiresMountsFor=/media/carlvinjerry/Views
+
+[Service]
+Type=simple
+User=carlvinjerry
+Group=carlvinjerry
+ExecStart=/usr/bin/transmission-daemon --foreground --config-dir /home/carlvinjerry/tcl-remote/transmission
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

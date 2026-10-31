@@ -4,7 +4,7 @@ Self-hosted remote for Android TV / Google TV and LG webOS. The Raspberry Pi run
 
 ## Version
 
-Current app version: **3.3.2**. `version.py` is the single source for the displayed version and bootstrap API. Use semantic versioning (`MAJOR.MINOR.PATCH`): increment major for incompatible releases, minor for backward-compatible features, and patch for fixes. Update `version.py` with each release.
+Current app version: **3.4.0**. `version.py` is the single source for the displayed version and bootstrap API. Use semantic versioning (`MAJOR.MINOR.PATCH`): increment major for incompatible releases, minor for backward-compatible features, and patch for fixes. Update `version.py` with each release.
 
 ## Add a TV
 
@@ -37,4 +37,6 @@ Paired TVs and credentials stay in `tvs.json` on the Pi. Every two minutes, Ctrl
 
 **Room scenes:** Create a scene for the selected TV in Settings with an app and/or target volume. Tap it on the Remote tab to run it. Android TV volume uses ADB's media-session command; LG webOS uses its own volume API. The scene checks the app is installed before launching it. Network ADB must be authorized for Android TV volume and app discovery.
 
-**MagicMirror screensaver:** On Android TV, Settings can install the bundled viewer as a system screensaver and restore the previous choice. The viewer fits the 1920×1080 mirror content within the TV while its slideshow background fills the screen edge to edge. This setting uses authorized ADB and is unavailable on LG webOS. The TV's firmware controls when idle screensavers start; Ctrl Freak does not change the idle timeout.
+**MagicMirror screensaver:** On Android TV, Settings can install the bundled viewer as a system screensaver and restore the previous choice. The viewer fits the 1920×1080 mirror content within the TV while its slideshow background fills the screen edge to edge. If the Pi is offline, the viewer shows a local full-screen clock and checks every 30 seconds until MagicMirror returns. Android does not allow this unprivileged viewer to switch to the TV's original system screensaver while the Pi is off. This setting uses authorized ADB and is unavailable on LG webOS. The TV's firmware controls when idle screensavers start; Ctrl Freak does not change the idle timeout.
+
+**Jack Sparrow:** The Apps tab searches recent Internet Archive catalog items and torrent RSS feeds supplied by the owner. It tracks title names, checks for matching releases every ten minutes, keeps an inbox across phones, and asks the owner to review each download. The owner selects a preferred quality and Plex library before submitting a torrent to the local Transmission daemon. Completed media are linked or copied from a staging directory into Movies, Series, Music, or PersonalVids under `JACK_MEDIA_ROOT` (default `/media/carlvinjerry/Views`). Plex's library scanning must include those paths. On the current Pi only Movies and Series are configured as Plex libraries; Music and Other Videos require a library to be added in Plex. The UI shows progress and completion. The torrent RPC endpoint is loopback-only and not exposed directly to phones. Archive rights and third-party feed items should be checked before downloading; the app does not validate distribution rights. Torrent searches cover configured feeds and the Archive catalog, not every release on the internet.

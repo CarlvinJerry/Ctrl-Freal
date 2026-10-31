@@ -14,6 +14,8 @@ let pairPoll = null;
 let tvNames = {};
 let prefDraft = null;
 let prefWriteQueue = Promise.resolve();
+let jackCandidate = null;
+let jackTracked = [];
 const specialApps = {magicmirror:{name:"MagicMirror", package:"magicmirror"}};
 
 const $ = id => document.getElementById(id);
@@ -303,6 +305,164 @@ function selectTab(name) {
   document.querySelectorAll(".panel").forEach(panel => {
     panel.classList.toggle("active", panel.id === name);
   });
+}
+
+async function jackPost(path, payload) {
+  const response = await fetch(path, {method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},body:JSON.stringify(payload)});
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || "Jack Sparrow request failed");
+  return data;
+}
+
+function jackButton(label, onclick) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = label;
+  button.onclick = onclick;
+  return button;
+}
+
+function jackCard(title, detail) {
+  const card = document.createElement("div");
+  card.className = "jackCard";
+  const heading = document.createElement("strong");
+  heading.textContent = title;
+  const small = document.createElement("small");
+  small.textContent = detail;
+  card.append(heading, small);
+  return card;
+}
+
+function jackReview(candidate) {
+  jackCandidate = candidate;
+  $("jackDialogTitle").textContent = candidate.title;
+  $("jackDialogSource").textContent = candidate.source === "archive" ? "Internet Archive catalog" : candidate.source === "feed" ? "Saved torrent feed" : "Your magnet link";
+  $("jackDownloadQuality").value = ["480p","720p","1080p","2160p"].includes(candidate.quality) ? candidate.quality : "any";
+  $("jackDownloadType").value = /S\d{1,2}E\d{1,2}/i.test(candidate.title) ? "series" : "movie";
+  $("jackDialog").showModal();
+}
+
+async function jackSearch() {
+  const query = $("jackQuery").value.trim();
+  const params = new URLSearchParams({q:query,quality:$("jackQuality").value,source:$("jackSource").value});
+  $("jackMessage").textContent = "Searching sources…";
+  $("jackResults").replaceChildren();
+  try {
+    const response = await fetch(`/api/jack/search?${params}`, {cache:"no-store"});
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Search unavailable");
+    for (const item of data.results) {
+      const tracked = jackTracked.some(t => item.title.toLowerCase().includes(t.title.toLowerCase()));
+      const card = jackCard(item.title, `${tracked ? "★ Tracked · " : ""}${item.source === "archive" ? "Archive" : "Feed"} · ${item.quality}${item.seeders !== null ? " · " + item.seeders + " seeders" : ""}${item.date ? " · " + item.date : ""}`);
+      card.append(jackButton("Review", () => jackReview(item)));
+      $("jackResults").append(card);
+    }
+    $("jackMessage").textContent = `${data.results.length} results${data.errors.length ? " · " + data.errors.join("; ") : ""}`;
+  } catch (error) { $("jackMessage").textContent = error.message; }
+}
+
+async function jackRefresh() {
+  try {
+    const response = await fetch("/api/jack", {cache:"no-store"});
+    if (!response.ok) return;
+    const data = await response.json();
+    jackTracked = data.tracked;
+    $("jackClientStatus").textContent = data.client_available ? "Torrent client ready" : "Torrent client unavailable on the Pi";
+    $("jackTracked").replaceChildren();
+    data.tracked.forEach(item => {
+      const card = jackCard(item.title, item.category);
+      card.append(jackButton("Stop tracking", async () => {
+        try { await jackPost("/api/jack/untrack", item); await jackRefresh(); }
+        catch (error) { toast(error.message); }
+      }));
+      $("jackTracked").append(card);
+    });
+    $("jackMatches").replaceChildren();
+    data.matches.filter(item => !item.seen).forEach(item => {
+      const card = jackCard(item.title, `New match for ${item.tracked_title} · ${item.quality}`);
+      const actions = document.createElement("div");
+      actions.className = "jackActions";
+      async function seen() {
+        try { await jackPost("/api/jack/match-seen", {key:item.key}); await jackRefresh(); }
+        catch (error) { toast(error.message); }
+      }
+      actions.append(jackButton("Review", () => { jackReview(item); seen(); }), jackButton("Dismiss", seen));
+      card.append(actions);
+      $("jackMatches").append(card);
+      const noticeKey = `jackMatch:${item.key}`;
+      if (!localStorage.getItem(noticeKey)) {
+        localStorage.setItem(noticeKey, "1");
+        toast(`New match for ${item.tracked_title}`);
+      }
+    });
+    $("jackFeeds").replaceChildren();
+    data.feeds.forEach(url => {
+      const card = jackCard(url, "Saved feed");
+      card.append(jackButton("Remove feed", async () => {
+        try { await jackPost("/api/jack/remove-feed", {url}); await jackRefresh(); }
+        catch (error) { toast(error.message); }
+      }));
+      $("jackFeeds").append(card);
+    });
+    $("jackJobs").replaceChildren();
+    data.jobs.forEach(job => {
+      const done = job.imported;
+      const inPlex = ["movie", "series"].includes(job.category);
+      const detail = done ? `${inPlex ? "Saved for Plex scan" : "Saved to media folder; add a Plex library"} · ${job.category}` : `${Math.round(job.progress * 100)}% · ${job.peers} peers · ${Math.round(job.rate / 1024)} KB/s${job.error ? " · " + job.error : ""}`;
+      const card = jackCard(job.title, detail);
+      const actions = document.createElement("div");
+      actions.className = "jackActions";
+      async function manage(action) {
+        try { await jackPost("/api/jack/manage", {id:job.id, action}); await jackRefresh(); }
+        catch (error) { toast(error.message); }
+      }
+      if (!done) actions.append(jackButton(job.status === 0 ? "Resume" : "Pause", () => manage(job.status === 0 ? "resume" : "pause")));
+      actions.append(jackButton("Remove", () => manage("remove")));
+      card.append(actions);
+      $("jackJobs").append(card);
+      const noticeKey = `jackCompleted:${job.id}`;
+      if (done && !localStorage.getItem(noticeKey)) {
+        localStorage.setItem(noticeKey, "1");
+        toast(inPlex ? `${job.title} finished; Plex will scan it` : `${job.title} is saved; add a Plex library`);
+      }
+    });
+  } catch (error) { console.debug("Jack Sparrow status unavailable", error); }
+}
+
+function installJack() {
+  $("jackSearchButton").onclick = jackSearch;
+  $("jackQuery").onkeydown = event => { if (event.key === "Enter") jackSearch(); };
+  $("jackFeedButton").onclick = async () => {
+    try { await jackPost("/api/jack/feed", {url:$("jackFeedUrl").value.trim()}); $("jackFeedUrl").value = ""; await jackRefresh(); toast("Feed added"); }
+    catch (error) { toast(error.message); }
+  };
+  $("jackTrackButton").onclick = async () => {
+    try { await jackPost("/api/jack/track", {title:$("jackTrackTitle").value.trim(),category:$("jackTrackType").value}); $("jackTrackTitle").value = ""; await jackRefresh(); toast("Title tracked"); }
+    catch (error) { toast(error.message); }
+  };
+  $("jackMagnetButton").onclick = () => {
+    const url = $("jackMagnet").value.trim();
+    if (!url.startsWith("magnet:?xt=urn:btih:")) return toast("Enter a magnet link");
+    const name = new URLSearchParams(url.slice(8)).get("dn") || "Magnet download";
+    jackReview({title:name,source:"magnet",url,quality:"unknown"});
+  };
+  $("jackCancelDownload").onclick = () => $("jackDialog").close();
+  $("jackConfirmDownload").onclick = async () => {
+    const button = $("jackConfirmDownload");
+    button.disabled = true;
+    try {
+      await jackPost("/api/jack/download", {...jackCandidate,category:$("jackDownloadType").value,quality:$("jackDownloadQuality").value});
+      $("jackDialog").close();
+      $("jackMagnet").value = "";
+      await jackRefresh();
+      toast("Download started");
+    } catch (error) { toast(error.message); }
+    finally { button.disabled = false; }
+  };
+  jackRefresh();
+  jackSearch();
+  setInterval(jackRefresh, 30000);
+  setInterval(() => { if (!document.hidden) jackSearch(); }, 600000);
 }
 
 function setPadMode(mode) {
@@ -840,6 +1000,7 @@ async function init() {
 
   const data = await response.json();
   csrf = data.csrf;
+  installJack();
   tvNames = Object.fromEntries(Object.entries(data.tvs).map(([id, config]) => [id, config.name]));
   try {
     const prefs = data.preferences || await preferencesRequest(localPreferences(), true);
