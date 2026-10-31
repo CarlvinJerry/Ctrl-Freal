@@ -1,0 +1,405 @@
+# CTRL FREAK — PROJECT CONTEXT & DEVELOPMENT HANDOVER
+
+## 1. Your Role
+
+You are taking over active development of **Ctrl Freak**, a self-hosted, mobile-first Android TV remote control application.
+
+This is an existing, functional project, not a greenfield development exercise.
+
+**Your task is to inspect the actual local repository, improve the application, fix outstanding issues, and deliver a polished, production-quality implementation while preserving all working functionality.**
+
+You have permission to inspect and modify the local development files, run tests, and make coordinated changes across multiple files.
+
+Do not deploy to the Raspberry Pi, delete existing data, or push changes to remote Git repositories without explicit approval.
+
+Avoid unnecessary back-and-forth. Inspect the code, formulate a plan, implement the improvements, test them, and report the results.
+
+## 2. Project Identity
+
+**Application:** Ctrl Freak
+
+**Tagline:** Power corrupts, I change channels.
+
+**Footer:** Built by a bored CarlvinJerry
+
+Preserve this capitalization exactly.
+
+Ctrl Freak is a personal Android TV remote application, initially built for a TCL television.
+
+The application should feel like a polished, native iPhone application rather than a generic Flask website.
+
+The long-term objective is a self-hosted, multi-TV remote with sophisticated controls, diagnostics, customizable themes, and a seamless user experience.
+
+Do not rename the application to BIG BERTHA. BIG BERTHA is the television's name, not the application's name.
+
+## 3. Development Environment
+
+### Local Windows development
+
+Project location:
+
+`P:\Personalprojects\CtrlFreak`
+
+Editor: Visual Studio Code
+
+Version control: Git, recently initialized by the user.
+
+Start by inspecting the repository structure and Git status. Do not assume that previously discussed changes are present unless confirmed in the files.
+
+Create a suitable `.gitignore` before staging or committing anything. Never commit pairing certificates, private keys, PINs, secrets, logs, or runtime data.
+
+The local development environment is now the primary workspace.
+
+### Raspberry Pi deployment
+
+- Device: Raspberry Pi 4, 8 GB
+- OS: Debian 13, ARM64
+- Hostname: `carlpi`
+- SSH user: `carlvinjerry`
+- Pi IP: `192.168.1.21`
+- Project: `/home/carlvinjerry/tcl-remote/v2`
+- Python environment: `/home/carlvinjerry/tcl-remote/.venv`
+- Service: `tcl-remote-v2.service`
+- Port: `8091`
+- Application URL: `http://192.168.1.21:8091/`
+
+An older working v1 installation runs on port `8090`, using `tcl-remote.service`.
+
+**Never modify or disrupt v1.**
+
+The Pi also runs other services, including Plex, MagicMirror, and Copyparty. Do not disturb them.
+
+### TV
+
+- Name: BIG BERTHA : Living Room TCL
+- Brand: TCL
+- Model: 43P725K
+- TV IP: `192.168.1.5`
+- Android version: 11
+- ADB network endpoint: `192.168.1.5:5555`
+
+Android TV Remote Protocol v2 is implemented using Python's `androidtvremote2` library.
+
+ADB has previously been enabled and authorized for the Raspberry Pi.
+
+Pairing certificates and private keys are sensitive. Do not expose, regenerate, overwrite, or commit them.
+
+## 4. Existing Application Architecture
+
+Backend:
+- Python
+- Flask
+- Waitress
+- `androidtvremote2`
+- ADB subprocess calls for hardware diagnostics
+
+Frontend:
+- HTML
+- CSS
+- Vanilla JavaScript
+- Mobile-first responsive layout
+- PWA manifest
+- Browser localStorage for persistent preferences
+
+Important files:
+
+- `app.py` — backend, TV connections, commands, API endpoints
+- `templates/index.html` — main application
+- `templates/login.html` — authentication
+- `static/remote.js` — frontend behavior
+- `static/style.css` — original styling
+- `static/glass.css` — newer UI styling
+- `static/manifest.json` — PWA configuration
+- `add_tv.py` — TV pairing/registration
+- `tvs.json` — TV configuration; treat as sensitive
+- `update-glass.sh` — earlier CSS update helper
+
+Inspect the actual files before modifying them.
+
+The project was previously updated using a Liquid Glass v4.0 frontend package. The current code may contain overlapping or redundant CSS rules from earlier incremental changes.
+
+Consolidate and simplify the styling where appropriate.
+
+## 5. Existing Functional Features — Preserve Them
+
+The application already supports or has implemented:
+
+- Multi-TV selection
+- PIN authentication
+- CSRF protection
+- TV connection status
+- Background reconnection after network interruptions
+- Power on/off commands
+- Long-press power handling
+- D-pad directional navigation and OK
+- Touchpad navigation
+- Back, Home, Menu, Settings, and Input
+- Volume Up, Volume Down, and Mute
+- Playback and media navigation
+- Keyboard/text input
+- App launching
+- Favorite apps with per-TV localStorage persistence
+- Favorite app reordering
+- Dark and light themes
+- Newer Dark Glass, Light Glass, and Midnight themes
+- Experimental voice controls
+- TV hardware diagnostics
+- Connection and command diagnostics
+- Floating bottom navigation
+- iPhone-oriented interface styling
+
+Some features may need validation or repair. Do not assume everything works simply because it was previously implemented.
+
+Preserve existing HTML IDs, `data-key` attributes, API contracts, and JavaScript event handlers unless changing them is necessary and all references are updated consistently.
+
+## 6. Approved Visual Direction
+
+The user has already approved a specific design direction.
+
+**Do not invent a completely different interface.**
+
+The target is a refined, compact, iPhone-inspired Liquid Glass remote control with:
+
+### Header
+
+- Ctrl Freak branding and tagline
+- Circular power button
+- TV selector
+- Subtle connection indicator
+- Minimal visual clutter
+
+### TV status
+
+Three compact status cards:
+
+- Power
+- Volume
+- Active App
+
+Status cards should be understated, readable, and responsive.
+
+### Main remote
+
+- Wide, rounded rectangular D-pad
+- Up, Down, Left, Right, and central circular OK button
+- Soft translucent glass surfaces
+- Subtle borders rather than heavy outlines
+- Compact, deliberate spacing
+- Clearly differentiated interactive states
+
+### Remote controls
+
+- Back, Home, Menu
+- Volume Down, Mute, Volume Up
+- Media controls
+- Input controls
+- Favorite apps
+
+Use consistent iconography. Avoid mismatched emojis, redundant symbols, and visually inconsistent controls.
+
+### Navigation
+
+Floating bottom navigation with:
+
+- Remote
+- Keyboard
+- Apps
+- More
+
+Use a compact iPhone-style dock, subtle active-tab indicator, consistent icons, and safe-area spacing.
+
+Navigation must not cover the last controls on any screen.
+
+### Settings
+
+An Appearance section supporting:
+
+- Dark Glass
+- Light Glass
+- Midnight
+- Classic Dark
+- Classic Light
+
+Provide persistent accent-color selection, ideally including blue, violet, mint, coral, amber, and pink.
+
+Theme and accent settings must apply consistently throughout the interface and survive reloads.
+
+### Footer
+
+Exactly:
+
+**Built by a bored CarlvinJerry**
+
+No alternative capitalization.
+
+## 7. Current Problems and Areas for Improvement
+
+### A. Inconsistent UI
+
+Previous development involved many incremental CSS changes, resulting in possible duplicate rules, inconsistent component styling, and layout issues.
+
+Review the full stylesheet hierarchy and consolidate the design.
+
+The target is a cohesive interface, not simply the old interface with different colors.
+
+### B. Desktop responsiveness
+
+The latest screenshot showed an overly wide remote panel, excessive spacing, and an interface that did not look sufficiently polished on desktop.
+
+Create sensible responsive layouts for both iPhone Safari and desktop browsers.
+
+The desktop version should not be an oversized mobile layout.
+
+### C. Missing status information
+
+The latest screenshot showed:
+
+- Power: —
+- Volume: —
+- Active App: —
+
+Investigate whether the backend was disconnected, the frontend was failing to fetch status, or the new UI introduced a JavaScript problem.
+
+Do not fabricate values.
+
+Distinguish disconnected, unavailable, and loading states appropriately.
+
+### D. Live volume reporting
+
+The Android TV Remote Protocol library exposes a `VolumeInfo` structure containing:
+
+- `level`
+- `max`
+- `muted`
+
+The application previously registered a volume update callback, but the frontend often displayed no volume information.
+
+Investigate callback registration, initial state hydration, reconnection behavior, and backend status serialization.
+
+If ADB can provide a reliable fallback, consider it carefully.
+
+Display real values only. Do not invent volume percentages.
+
+### E. Installed app discovery
+
+The backend previously had a hardcoded app list, including Plex, YouTube, Spotify, and Netflix.
+
+The user wants the app launcher to show applications genuinely installed on the television.
+
+ADB is available and authorized.
+
+Implement reliable installed-app discovery with friendly names where possible, graceful failure handling, and a safe allowlisted launch mechanism.
+
+Never expose arbitrary ADB shell execution to unauthenticated browser requests.
+
+### F. Favorites
+
+Verify that favorite apps are saved per television, displayed on the Remote tab, and can be reordered without losing state.
+
+### G. Device diagnostics
+
+The app already has a TV hardware endpoint:
+
+`/api/device-info/<tv_id>`
+
+It previously returned:
+
+- Model and Android version
+- RAM usage and availability
+- Internal storage usage and availability
+
+The More tab displays RAM and storage usage bars.
+
+Preserve this functionality and improve its visual presentation.
+
+Previously observed values were approximately 2 GiB RAM and 10 GiB internal storage. These are historical observations, not values to hardcode.
+
+### H. Touchpad and interaction quality
+
+Improve touch feedback, gesture responsiveness, button states, and accessibility.
+
+Respect reduced-motion settings.
+
+Ensure long-press power continues to work correctly.
+
+### I. Development workflow
+
+Eliminate the need for manually changing CSS version query parameters or repeatedly editing CSS over SSH.
+
+Establish a proper local development and deployment workflow with:
+
+- Git
+- Sensible project structure
+- Automated checks
+- Safe configuration management
+- Build or deployment scripts where useful
+- Backup and rollback support
+
+Do not introduce unnecessary frameworks or complexity.
+
+## 8. Security and Reliability Requirements
+
+- Preserve PIN authentication and CSRF protections.
+- Keep credentials and private keys out of Git.
+- Avoid logging secrets.
+- Do not expose arbitrary ADB commands through HTTP.
+- Keep TV connection management and reconnection reliable.
+- Preserve user preferences and favorite apps.
+- Avoid breaking the original v1 service.
+- Avoid changing deployment configuration unnecessarily.
+- Make rollback straightforward.
+
+## 9. Git Workflow
+
+Before editing:
+
+1. Inspect Git status and the current branch.
+2. Check for uncommitted changes.
+3. Identify sensitive or generated files.
+4. Confirm that `.gitignore` excludes secrets and runtime artifacts.
+5. Preserve existing user work.
+
+Make coordinated changes to the project rather than many disconnected CSS patches.
+
+Run relevant checks and inspect the final diff.
+
+Do not force-push, delete branches, rewrite history, or commit without user approval.
+
+## 10. Immediate Assignment
+
+**Proceed with a comprehensive review and improvement of the current local Ctrl Freak project.**
+
+First, inspect the real files at:
+
+`P:\Personalprojects\CtrlFreak`
+
+Then:
+
+1. Diagnose the current frontend and backend integration.
+2. Fix the blank status indicators.
+3. Consolidate and polish the Liquid Glass UI.
+4. Match the approved compact design across all tabs.
+5. Improve desktop and mobile responsiveness.
+6. Verify persistent themes and accent colors.
+7. Review and repair app discovery and favorites.
+8. Improve volume reporting where supported.
+9. Preserve authentication, reconnection, TV controls, and diagnostics.
+10. Run tests and report what was changed, verified, and still needs testing against the live television.
+
+Work directly in the local repository.
+
+Do not deploy to the Raspberry Pi until the user explicitly approves.
+
+## 11. Working Style
+
+The user is technically experienced and prefers implementation over prolonged discussion.
+
+Do not repeatedly ask whether to proceed after every small CSS change.
+
+Inspect the code, implement coordinated improvements, test them, and present the results.
+
+Ask questions only when a genuinely important decision or missing requirement blocks progress.
+
+Keep explanations concise but technically meaningful.
+
+**The objective is to finish a polished, functional Ctrl Freak application—not to continue endlessly adjusting isolated CSS rules.**
