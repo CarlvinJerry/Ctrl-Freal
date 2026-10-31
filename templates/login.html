@@ -1,0 +1,33 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#10141d">
+<title>TCL Remote — Login</title>
+<style>
+body{margin:0;background:#10141d;color:white;
+font-family:-apple-system,BlinkMacSystemFont,Arial,sans-serif;
+display:grid;place-items:center;min-height:100dvh}
+main{width:min(85%,340px);text-align:center}
+input,button{box-sizing:border-box;width:100%;padding:17px;
+font-size:19px;border-radius:14px;margin-top:15px}
+input{background:#202836;border:1px solid #526078;
+color:white;text-align:center}
+button{background:#5575e9;color:white;border:0;font-weight:700}
+p{color:#aab6c8}
+</style>
+</head>
+<body>
+<main>
+<h1>📺 TCL Remote</h1>
+<p>Enter your owner or guest PIN</p>
+<form action="/login" method="post">
+<input name="pin" type="password" inputmode="numeric"
+autocomplete="off" maxlength="6" required autofocus>
+<button>Unlock Remote</button>
+</form>
+</main>
+</body>
+</html>

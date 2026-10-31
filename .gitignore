@@ -1,0 +1,39 @@
+# Pairing, authentication, and TV configuration
+.remote_pin
+.session_secret
+client_cert.pem
+client_key.pem
+tvs.json
+tvs.json.new
+preferences.json
+preferences.json.new
+.pairing_*.pem
+*.pem
+*.key
+*.jks
+.magicmirror-signing-pass
+.guest_access.json
+.guest_access.json.new
+.screensaver_previous.json
+.screensaver_previous.json.new
+android-viewer/build/
+
+# Local runtime and editor files
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.env.*
+*.log
+.DS_Store
+.vscode/
+
+# Local snapshots and previous incremental patches
+backups/
+*.before-*
+*.backup
+*.bak
+glass-before-status.css
+glass-updated.css
+status-cards.css

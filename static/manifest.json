@@ -1,0 +1,12 @@
+
+{
+  "name": "TCL Remote",
+  "short_name": "TV Remote",
+  "description": "Local Android TV remote hosted on Raspberry Pi",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#10141d",
+  "theme_color": "#10141d",
+  "icons": []
+}

@@ -1,0 +1,260 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#10141d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Ctrl Freak">
+<link rel="manifest" href="/static/manifest.json">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='glass.css') }}">
+<title>Ctrl Freak · Your TV, your rules</title>
+</head>
+<body>
+<main class="app">
+<header class="appHeader">
+  <div class="headerTop">
+    <div class="brandHeader">
+      <h1>Ctrl Freak</h1>
+      <p>Power corrupts, I change channels.</p>
+    </div>
+
+    <button class="power" data-key="power" aria-label="Power">⏻</button>
+  </div>
+
+  <div class="headerBottom">
+    <select id="tvSelect" aria-label="Choose television"></select>
+    <button id="addTv" type="button" aria-label="Add television">＋ Add TV</button>
+  </div>
+</header>
+
+<div class="connection" role="status" aria-live="polite">
+  <span id="dot" class="dot"></span>
+  <span id="connectionText">Ready</span>
+  <span id="latency"></span>
+</div>
+<div class="tvInfo">
+  <div>
+    <span>Power</span>
+    <strong id="tvPower">Loading</strong>
+  </div>
+  <div>
+    <span>Volume</span>
+    <strong id="tvVolume">Loading</strong>
+  </div>
+  <div>
+    <span>Active App</span>
+    <strong id="tvCurrentApp">Loading</strong>
+  </div>
+</div>
+
+<nav class="tabs bottomNav" aria-label="Main navigation">
+  <button class="selected" data-tab="remote">
+    <span class="navIcon">⌘</span>
+    <span>Remote</span>
+  </button>
+
+  <button data-tab="keyboard">
+    <span class="navIcon">⌨</span>
+    <span>Keyboard</span>
+  </button>
+
+  <button data-tab="apps">
+    <span class="navIcon">▦</span>
+    <span>Apps</span>
+  </button>
+
+  <button data-tab="settings">
+    <span class="navIcon">⚙</span>
+    <span>More</span>
+  </button>
+</nav>
+
+<section id="remote" class="panel active">
+  <div class="sectionHeading"><div><span class="eyebrow">CONTROL CENTER</span><h2>Remote</h2></div><span class="sectionPill">Living room</span></div>
+  <div class="mode">
+    <button id="padMode" class="selected">D-Pad</button>
+    <button id="touchMode">Touchpad</button>
+  </div>
+
+  <div id="dpad" class="dpad">
+    <span></span><button data-key="up">▲</button><span></span>
+    <button data-key="left">◀</button>
+    <button class="ok" data-key="ok">OK</button>
+    <button data-key="right">▶</button>
+    <span></span><button data-key="down">▼</button><span></span>
+  </div>
+
+  <div id="touchpad" class="touchpad hidden">
+    <div>Swipe to navigate</div>
+    <small>Tap to select</small>
+  </div>
+
+  <div class="controlHeading"><span>QUICK CONTROLS</span></div>
+  <div class="buttonGrid remoteButtons">
+    <button data-key="back">↩ Back</button>
+    <button data-key="home">⌂ Home</button>
+    <button data-key="menu">☰ Menu</button>
+    <button class="volumeButton" data-key="voldown" aria-label="Volume down">◖ −</button>
+    <button class="volumeButton" data-key="mute" aria-label="Mute">◖ ×</button>
+    <button class="volumeButton" data-key="volup" aria-label="Volume up">◖ +</button>
+    <button data-key="rewind" aria-label="Rewind">≪</button>
+    <button data-key="play" aria-label="Play or pause">▷Ⅱ</button>
+    <button data-key="forward" aria-label="Fast forward">≫</button>
+    <button data-key="previous" aria-label="Previous">|◁</button>
+    <button data-key="input">Input</button>
+    <button data-key="next" aria-label="Next">▷|</button>
+  </div>
+
+  <div class="mirrorShortcut"><button id="magicMirrorShortcut" type="button">▣ MagicMirror</button></div>
+
+  <div class="sceneSection">
+    <h3>Room scenes</h3>
+    <div id="sceneButtons" class="appGrid"></div>
+    <p id="noScenes" class="hint">Create a scene in Settings to open an app and set volume together.</p>
+  </div>
+
+  <div class="favoritesSection">
+    <h3>★ Favorites</h3>
+    <div id="remoteFavorites" class="appGrid"></div>
+    <p id="noFavorites" class="hint">
+      Choose your favorite apps in the Apps tab.
+    </p>
+  </div>
+</section>
+
+<section id="keyboard" class="panel">
+  <div class="sectionHeading"><div><span class="eyebrow">TYPE ON YOUR TV</span><h2>Keyboard</h2></div></div>
+  <p>Focus a text field on your TV before sending text.</p>
+  <textarea id="tvText" rows="4"
+    placeholder="Type a search, title or message"></textarea>
+  <button class="primary" id="sendText">Send Text</button>
+  <div class="buttonGrid">
+    <button data-key="delete">⌫ Delete</button>
+    <button data-key="enter">↵ Enter</button>
+    <button id="clearText">Clear</button>
+  </div>
+  <h3>Voice input</h3>
+  <button class="primary" id="voiceButton" type="button">Speak</button>
+  <p id="voiceInfo" class="hint">
+    Your speech fills the text box. Review it, then tap Send Text.
+  </p>
+</section>
+
+<section id="apps" class="panel">
+  <div class="sectionHeading"><div><span class="eyebrow">YOUR ENTERTAINMENT</span><h2>App Launcher</h2></div></div>
+  <p id="appsMessage">Discovering TV apps and shortcuts…</p>
+  <p class="hint">On Android TV, MagicMirror installs and opens a full screen viewer when ADB is available. Otherwise it opens in the TV browser.</p>
+  <button id="refreshApps" type="button">Refresh apps</button>
+  <div id="appGrid" class="appGrid"></div>
+  <h3>Favorite shortcuts</h3>
+  <p>Choose which apps appear first.</p>
+  <div id="favoriteList"></div>
+</section>
+
+<section id="settings" class="panel">
+  <div class="sectionHeading"><div><span class="eyebrow">MAKE IT YOURS</span><h2>Settings</h2></div></div>
+  <h3>TV Controls</h3>
+  <button id="openTvSettings">⚙ Open TV Settings</button>
+
+  <h3>Appearance & Preferences</h3>
+  <label>Theme
+    <select id="themeSelect">
+  <option value="dark-glass">Dark Glass</option>
+  <option value="light-glass">Light Glass</option>
+  <option value="midnight">Midnight</option>
+  <option value="dark">Classic Dark</option>
+  <option value="light">Classic Light</option>
+</select>
+  </label>
+  <div class="accentPicker"><span class="settingLabel">Accent color</span><div id="accentOptions" class="accentOptions" role="group" aria-label="Accent color"></div></div>
+  <label>
+    <input type="checkbox" id="haptics" checked>
+    Haptic feedback where supported
+  </label>
+  <h3>Guest remote</h3>
+  <p class="hint">Give a guest temporary access to volume, playback, and navigation. Pairing and Settings stay private.</p>
+  <label>Guest access length<select id="guestHours"><option value="1">1 hour</option><option value="8" selected>8 hours</option><option value="24">24 hours</option><option value="72">3 days</option></select></label>
+  <button id="createGuest" type="button">Create guest PIN</button>
+  <p id="guestPin" role="status" aria-live="polite"></p>
+  <p id="guestStatus" class="hint"></p>
+  <button id="revokeGuest" type="button" hidden>Revoke guest access</button>
+  <h3>Room scenes</h3>
+  <p class="hint">Scenes are shared across your phones and run on the TV selected when you create them.</p>
+  <label>Scene name<input id="sceneName" maxlength="40" placeholder="Movie night"></label>
+  <label>Open app<select id="sceneApp"><option value="">No app</option></select></label>
+  <label>Volume (optional, 0–100)<input id="sceneVolume" type="number" min="0" max="100" placeholder="Leave unchanged"></label>
+  <button id="saveScene" type="button">Save scene for this TV</button>
+  <div id="sceneList"></div>
+  <h3>MagicMirror screensaver</h3>
+  <p class="hint">Let MagicMirror appear when an Android TV is idle. Your previous screensaver can be restored.</p>
+  <button id="toggleScreensaver" type="button">Checking TV screensaver…</button>
+  <p id="screensaverStatus" class="hint" role="status"></p>
+  <div class="deviceInfo">
+  <h3>TV Device Information</h3>
+  <p id="deviceModel" class="hint">Loading TV hardware information...</p>
+
+  <div class="hardwareCard">
+    <div class="hardwareHeading">
+      <span>◉ Memory</span>
+      <strong id="ramPercent">—</strong>
+    </div>
+    <div class="hardwareTrack">
+      <div id="ramBar" class="hardwareFill"></div>
+    </div>
+    <p id="ramDetails" class="hint">Waiting for RAM information</p>
+  </div>
+
+  <div class="hardwareCard">
+    <div class="hardwareHeading">
+      <span>▣ Internal Storage</span>
+      <strong id="storagePercent">—</strong>
+    </div>
+    <div class="hardwareTrack">
+      <div id="storageBar" class="hardwareFill"></div>
+    </div>
+    <p id="storageDetails" class="hint">Waiting for storage information</p>
+  </div>
+  <button id="refreshDeviceInfo" type="button">Refresh memory &amp; storage</button>
+  <p id="deviceInfoUpdated" class="hint" aria-live="polite">Updates automatically every 30 seconds.</p>
+</div>
+  <h3>TV Diagnostics</h3>
+  <pre id="diagnostics">Waiting for status...</pre>
+  <button id="refreshStatus">Refresh status</button>
+  <h3>Saved TVs</h3>
+  <p class="hint">Pairing stays saved on the Pi. Find a saved TV again if its IP address changes.</p>
+  <button id="reconnectSaved" type="button">Find saved TVs</button>
+  <p id="reconnectSavedMessage" class="hint" role="status"></p>
+  <p class="hint">Add another TV using the Add TV button beside the selector.</p>
+  <a href="/logout">Lock remote</a>
+</section>
+
+<div id="toast" role="status" aria-live="polite"></div>
+<footer class="appFooter">
+  [v{{ app_version }}] Built by a bored CarlvinJerry
+</footer>
+</main>
+<dialog id="pairDialog" aria-labelledby="pairTitle">
+  <div class="pairHeader"><h2 id="pairTitle">Add a TV</h2><button id="closePair" type="button" aria-label="Close">×</button></div>
+  <div id="pairSetup">
+    <p>Keep your TV on and connected to the same home network as the Raspberry Pi.</p>
+    <button id="scanTvs" type="button">Scan for TVs</button>
+    <div id="foundTvs" class="foundTvs" aria-live="polite"></div>
+    <label>TV type<select id="pairType"><option value="android">Android TV / Google TV</option><option value="webos">LG webOS (including LJ570U)</option></select></label>
+    <label>TV IP address<input id="pairHost" inputmode="decimal" placeholder="192.168.1.50" autocomplete="off"></label>
+    <label>Name<input id="pairName" maxlength="60" placeholder="Living Room TV"></label>
+    <p id="pairInstructions" class="hint"></p>
+    <button class="primary" id="beginPair" type="button">Start pairing</button>
+  </div>
+  <div id="pairProgress" hidden>
+    <p id="pairStepText"></p>
+    <label id="pairCodeLabel">Code shown on the TV<input id="pairCode" inputmode="numeric" autocomplete="one-time-code"></label>
+    <button class="primary" id="finishPair" type="button">Finish pairing</button>
+  </div>
+  <p id="pairMessage" role="status" aria-live="polite"></p>
+</dialog>
+<script src="{{ url_for('static', filename='remote.js') }}"></script>
+</body>
+</html>

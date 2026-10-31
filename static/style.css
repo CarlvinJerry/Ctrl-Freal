@@ -1,0 +1,247 @@
+
+:root{
+ --bg:#10141d;--panel:#202836;--button:#293243;
+ --text:#f5f7fc;--muted:#aab6c8;--accent:#5575e9;
+ --border:#354052;
+}
+body.light{
+ --bg:#f3f5f9;--panel:#e5e9f0;--button:#dbe1ea;
+ --text:#182234;--muted:#596579;--accent:#4162d7;
+ --border:#c6cfdd;
+}
+*{box-sizing:border-box}
+body{
+ margin:0;background:var(--bg);color:var(--text);
+ font-family:-apple-system,BlinkMacSystemFont,Arial,sans-serif;
+ min-height:100dvh;-webkit-tap-highlight-color:transparent;
+}
+button,select,textarea{font:inherit}
+button{
+ background:var(--button);color:var(--text);
+ border:0;border-radius:16px;min-height:52px;
+ cursor:pointer;touch-action:manipulation;
+}
+button:active{filter:brightness(1.3);transform:scale(.97)}
+button.selected,.primary{background:var(--accent);color:white}
+.app{max-width:450px;margin:auto;padding:22px 17px 45px}
+header{display:flex;justify-content:space-between;align-items:center}
+h1{margin:0 0 5px;font-size:25px}
+h2{font-size:20px}
+h3{font-size:16px;margin-top:24px}
+p,.hint{color:var(--muted);font-size:14px;line-height:1.5}
+.power{width:55px;height:55px;font-size:27px;color:#ff8888}
+select,textarea{
+ background:var(--panel);color:var(--text);
+ border:1px solid var(--border);border-radius:12px;
+ padding:12px;max-width:100%;
+}
+textarea{width:100%;resize:vertical;margin:12px 0}
+.connection{
+ display:flex;align-items:center;gap:8px;
+ color:var(--muted);font-size:13px;margin:19px 0;
+}
+#latency{margin-left:auto}
+.dot{width:9px;height:9px;border-radius:50%;background:#8993a3}
+.dot.online{background:#48c78e}
+.dot.standby{background:#f0b44c}
+.dot.offline{background:#e57c7c}
+/* Live TV information */
+.tvInfo{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:8px;
+  margin:12px 0 18px;
+}
+
+.tvInfo > div{
+  background:var(--panel);
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:12px 8px;
+  min-width:0;
+  text-align:center;
+}
+
+.tvInfo span{
+  display:block;
+  color:var(--muted);
+  font-size:11px;
+  margin-bottom:7px;
+}
+
+.tvInfo strong{
+  display:block;
+  color:var(--text);
+  font-size:13px;
+  overflow-wrap:anywhere;
+}
+.tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.tabs button{min-height:43px;font-size:13px;border-radius:11px}
+.panel{display:none;padding-top:20px}
+.panel.active{display:block}
+.mode{display:flex;justify-content:center;gap:8px}
+.mode button{min-height:40px;padding:0 20px}
+.dpad{
+ width:min(280px,82vw);height:min(280px,82vw);
+ margin:20px auto 27px;padding:12px;border-radius:50%;
+ background:var(--panel);display:grid;
+ grid-template-columns:repeat(3,1fr);
+ grid-template-rows:repeat(3,1fr);
+}
+.dpad button{background:transparent;font-size:28px;border-radius:50%}
+.dpad button.ok{background:var(--accent);color:white;font-size:17px}
+.touchpad{
+ height:280px;background:var(--panel);border:1px solid var(--border);
+ border-radius:25px;margin:20px 0 27px;touch-action:none;
+ display:flex;align-items:center;justify-content:center;
+ flex-direction:column;gap:10px;color:var(--muted);
+}
+.hidden{display:none!important}
+.buttonGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.buttonGrid button{font-size:15px;min-height:61px}
+.primary{padding:13px 20px}
+#sendText{width:100%}
+.appGrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.appGrid button{min-height:75px}
+#favoriteList{display:flex;flex-direction:column;gap:12px}
+#favoriteList label{display:flex;gap:10px;align-items:center}
+/* Favorite app management */
+#favoriteList label{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  min-height:48px;
+  flex-wrap:wrap;
+}
+
+#favoriteList label button{
+  min-width:40px;
+  min-height:40px;
+  padding:8px;
+  font-size:14px;
+}
+
+#favoriteList label button:first-of-type{
+  margin-left:auto;
+}
+
+#favoriteList label button:disabled{
+  opacity:0.35;
+  cursor:default;
+}
+
+.favoritesSection{
+  margin-top:26px;
+}
+
+#remoteFavorites button{
+  min-height:58px;
+}
+
+[hidden]{
+  display:none !important;
+}
+#settings label{display:block;margin:15px 0}
+#settings a{color:var(--accent)}
+pre{
+ white-space:pre-wrap;word-break:break-word;
+ background:var(--panel);padding:15px;border-radius:12px;
+ font-size:12px;line-height:1.6;
+}
+#toast{
+ position:fixed;bottom:22px;left:50%;transform:translateX(-50%);
+ background:#34445d;color:white;border-radius:12px;
+ padding:12px 18px;max-width:90vw;text-align:center;
+ display:none;font-size:13px;z-index:10;
+}
+@media(min-width:700px){
+ .app{max-width:650px}
+ .dpad{width:300px;height:300px}
+}
+/* TV hardware information */
+.deviceInfo {
+  margin: 24px 0;
+}
+
+.hardwareCard {
+  padding: 18px;
+  margin: 12px 0;
+  border-radius: 22px;
+  background: rgba(145, 165, 200, 0.12);
+  border: 1px solid rgba(180, 195, 220, 0.22);
+  -webkit-backdrop-filter: blur(22px);
+  backdrop-filter: blur(22px);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.08);
+}
+
+.hardwareHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 15px;
+}
+
+.hardwareTrack {
+  height: 12px;
+  margin-top: 16px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(130, 145, 170, 0.22);
+}
+
+.hardwareFill {
+  width: 0%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 450ms ease;
+}
+
+#storageBar {
+  background: #e69a50;
+}
+
+.hardwareCard .hint {
+  margin-bottom: 0;
+  font-size: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hardwareFill {
+    transition: none;
+  }
+}
+/* iPhone-inspired glass volume controls */
+.volumeButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 58px;
+  border-radius: 20px;
+
+  background: rgba(145, 165, 200, 0.13);
+  border: 1px solid rgba(190, 205, 230, 0.25);
+
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 5px 18px rgba(0, 0, 0, 0.08);
+
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.volumeIcon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.volumeButton:active {
+  background: rgba(145, 165, 200, 0.28);
+  transform: scale(0.96);
+}
+

@@ -1,0 +1,5 @@
+Flask>=3,<4
+waitress>=3,<4
+androidtvremote2>=0.1.0,<1
+zeroconf>=0.130,<1
+aiowebostv>=0.7,<2

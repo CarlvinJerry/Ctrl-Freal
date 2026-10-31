@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#10141d">
+<title>Ctrl Freak · Guest</title>
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#f4f7fc;background:#10141d}
+*{box-sizing:border-box}body{margin:0;min-height:100dvh;padding:22px 16px 40px}
+main{width:min(100%,480px);margin:auto}header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:20px}
+h1{font-size:25px;letter-spacing:-.7px;margin:0}h2{font-size:14px;color:#b9c7da;text-transform:uppercase;letter-spacing:.12em;margin:26px 0 10px}
+p{color:#b9c7da;font-size:13px;line-height:1.5}a{color:#a9c8ff;font-size:13px}
+select,button{color:#f4f7fc;background:#222d3d;border:1px solid #3b4d64;border-radius:17px;font:inherit}
+select{width:100%;height:52px;padding:0 14px;font-size:16px}button{min-height:54px;padding:12px;font-weight:600;touch-action:manipulation}
+button:active{transform:scale(.97);background:#34445d}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
+.grid button{min-width:0}.primary{background:#344e7d}.status{display:flex;align-items:center;gap:8px;padding:12px 0}
+.dot{width:9px;height:9px;border-radius:50%;background:#58d1a5}.dot.offline{background:#f18c8c}
+footer{text-align:center;color:#8493a9;font-size:11px;margin-top:36px}
+</style>
+</head>
+<body><main>
+<header><div><h1>Ctrl Freak</h1><p>Guest remote · volume and playback</p></div><a href="/logout">Lock</a></header>
+<label for="guestTv">TV</label><select id="guestTv"></select>
+<div class="status"><span id="guestDot" class="dot offline"></span><p id="guestStatus">Connecting…</p></div>
+<h2>Volume</h2><div class="grid"><button data-key="voldown">−</button><button data-key="mute">Mute</button><button data-key="volup">+</button></div>
+<h2>Playback</h2><div class="grid"><button data-key="previous">Previous</button><button data-key="play" class="primary">Play / Pause</button><button data-key="next">Next</button></div>
+<h2>Navigate</h2><div class="grid"><span></span><button data-key="up">▲</button><span></span><button data-key="left">◀</button><button data-key="ok" class="primary">OK</button><button data-key="right">▶</button><span></span><button data-key="down">▼</button><span></span></div>
+<div class="grid" style="margin-top:9px"><button data-key="back">Back</button><button data-key="home">Home</button><button data-key="forward">Forward</button></div>
+<p id="guestMessage" role="status" aria-live="polite"></p>
+<footer>[v{{ app_version }}] Built by a bored CarlvinJerry</footer>
+</main><script src="{{ url_for('static', filename='guest.js') }}"></script></body>
+</html>
