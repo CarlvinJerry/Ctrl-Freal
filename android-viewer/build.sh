@@ -15,6 +15,7 @@ javac -g -source 8 -target 8 -classpath "$ANDROID_JAR" -d build/classes \
   src/com/ctrlfreak/magicmirror/FitWebViewClient.java \
   src/com/ctrlfreak/magicmirror/MirrorDreamService.java \
   src/com/ctrlfreak/magicmirror/MirrorProbe.java \
+  src/com/ctrlfreak/magicmirror/IconExportReceiver.java \
   build/gen/com/ctrlfreak/magicmirror/R.java
 jar cf build/classes.jar -C build/classes .
 java -cp "$D8_JAR" com.android.tools.r8.D8 --lib "$ANDROID_JAR" \

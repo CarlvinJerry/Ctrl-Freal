@@ -4,7 +4,7 @@ Self-hosted remote for Android TV / Google TV and LG webOS. The Raspberry Pi run
 
 ## Version
 
-Current app version: **3.7.0**. `version.py` is the single source for the displayed version and bootstrap API. Use semantic versioning (`MAJOR.MINOR.PATCH`): increment major for incompatible releases, minor for backward-compatible features, and patch for fixes. Update `version.py` with each release.
+Current app version: **3.8.0**. `version.py` is the single source for the displayed version and bootstrap API. Use semantic versioning (`MAJOR.MINOR.PATCH`): increment major for incompatible releases, minor for backward-compatible features, and patch for fixes. Update `version.py` with each release.
 
 ## Add a TV
 
@@ -42,3 +42,5 @@ Paired TVs and credentials stay in `tvs.json` on the Pi. Every two minutes, Ctrl
 **Jack Sparrow:** Its own tab searches configured Jackett public indexers, Internet Archive, and owner supplied RSS feeds. The indexer service is private to the Pi; its API key and download URLs stay in the server state. Results appear in a scrollable grid with type filters, ordering, language labels, and downloaded markers. English labelled results are prioritized, though unlabeled sources cannot guarantee language. The owner reviews each download, chooses a quality and Plex library, and Transmission downloads to the Pi. Finished files are linked or copied into the configured media folders for Plex. Plex series are checked against TVMaze for newly aired episodes; explicitly tracked Plex movies are checked for possible sequels and quality upgrades. Notices and dismissed IDs persist across devices. Jack imported movie files can be deleted from the Downloads section; deletion is limited to the recorded import paths. Sources can fail or be blocked independently. No download has been validated end to end on the Pi yet; the search and Plex checks have been validated.
 
 **v3.7.0:** Android TV apps are discovered from their TV and standard launcher entries and opened directly through ADB; sideloaded launchable apps can appear in Favorites. Jack's active matches are grouped by episode, bounded in a phone-sized list, and hidden once queued or completed. Completed downloads are in a collapsed archive. The v3.6.0 release is tagged for rollback.
+
+**v3.8.0:** The Pi caches app icons exported from the TV's installed packages by the MagicMirror viewer and serves them only to authenticated remotes. Text labels remain available. Jack displays download health, progress, speed and estimated time, and checks the local Plex library database to distinguish imported files from media ready in Plex. The Check Plex button refreshes this status; Plex still performs its own automatic or periodic scan. The TV may be off while the Pi downloads.

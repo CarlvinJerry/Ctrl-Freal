@@ -1,4 +1,7 @@
 import tempfile
+import sqlite3
+import time
+from contextlib import closing
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -10,6 +13,35 @@ import xml.etree.ElementTree as ET
 
 
 class JackSparrowTest(unittest.TestCase):
+    def test_plex_import_status_changes_after_scan(self):
+        with tempfile.TemporaryDirectory() as temp:
+            jack = JackSparrow(temp)
+            jack.plex_db = Path(temp) / "plex.db"
+            movie = str(Path(temp) / "Movies" / "Example.mkv")
+            with closing(sqlite3.connect(jack.plex_db)) as db:
+                db.execute("CREATE TABLE media_parts (file TEXT, deleted_at INTEGER)")
+                db.commit()
+            self.assertFalse(jack.plex_import_status([movie], "movie"))
+            with closing(sqlite3.connect(jack.plex_db)) as db:
+                db.execute("INSERT INTO media_parts VALUES (?,NULL)", (movie,))
+                db.commit()
+            self.assertTrue(jack.plex_import_status([movie], "movie"))
+
+    def test_stalled_download_health(self):
+        with tempfile.TemporaryDirectory() as temp:
+            jack = JackSparrow(temp)
+            state = jack.read()
+            state["jobs"] = {"7": {"title": "Example", "category": "movie", "quality": "any",
+                                   "source": "feed", "imported": False, "selected": True,
+                                   "last_progress": .3, "last_progress_at": int(time.time()) - 700}}
+            jack.save(state)
+            torrent = {"id": 7, "percentDone": .3, "status": 4, "rateDownload": 0,
+                       "peersConnected": 0, "eta": -1, "sizeWhenDone": 1000,
+                       "leftUntilDone": 700}
+            with patch.object(jack, "rpc", return_value={"torrents": [torrent]}):
+                result = jack.jobs()[0]
+            self.assertEqual(result["health"], "stalled")
+            self.assertEqual(result["size"], 1000)
     def test_title_and_quality(self):
         self.assertEqual(clean_title("Movie: Name/2026"), "Movie Name2026")
         self.assertEqual(quality_of("Show.S01E02.1080p.WEB"), "1080p")

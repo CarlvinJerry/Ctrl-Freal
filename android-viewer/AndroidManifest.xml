@@ -1,8 +1,10 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.ctrlfreak.magicmirror" android:versionCode="8" android:versionName="1.4.0">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.ctrlfreak.magicmirror" android:versionCode="9" android:versionName="1.5.0">
     <uses-sdk android:minSdkVersion="23" android:targetSdkVersion="30" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <application android:label="MagicMirror" android:theme="@android:style/Theme.Material.NoActionBar" android:usesCleartextTraffic="true" android:banner="@drawable/banner">
+        <receiver android:name=".IconExportReceiver" android:exported="true" />
         <activity android:name=".ViewerActivity" android:exported="true" android:screenOrientation="landscape">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

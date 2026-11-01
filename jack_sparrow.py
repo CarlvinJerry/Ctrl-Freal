@@ -14,6 +14,7 @@ import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import closing
 from pathlib import Path
 
 
@@ -123,7 +124,7 @@ class JackSparrow:
         if not self.plex_db.is_file():
             return {"shows": [], "movies": []}
         uri = self.plex_db.resolve().as_uri() + "?mode=ro"
-        with sqlite3.connect(uri, uri=True, timeout=3) as db:
+        with closing(sqlite3.connect(uri, uri=True, timeout=3)) as db:
             db.execute("PRAGMA query_only=ON")
             shows = db.execute("SELECT id,title FROM metadata_items WHERE metadata_type=2 AND deleted_at IS NULL").fetchall()
             episodes = db.execute("SELECT show.id,season.\"index\",episode.\"index\" FROM metadata_items episode JOIN metadata_items season ON episode.parent_id=season.id JOIN metadata_items show ON season.parent_id=show.id WHERE episode.metadata_type=4 AND episode.deleted_at IS NULL").fetchall()
@@ -133,6 +134,27 @@ class JackSparrow:
             owned.setdefault(show_id, set()).add((season, episode))
         return {"shows": [{"title": title, "episodes": owned.get(show_id, set())} for show_id, title in shows],
                 "movies": [{"title": title, "year": year, "height": height} for title, year, height in movies]}
+
+    def plex_import_status(self, paths, category):
+        if category not in ("movie", "series") or not paths or not self.plex_db.is_file():
+            return None
+        files = [str(path) for path in paths[:30]]
+        placeholders = ",".join("?" for _ in files)
+        uri = self.plex_db.resolve().as_uri() + "?mode=ro"
+        try:
+            with closing(sqlite3.connect(uri, uri=True, timeout=3)) as db:
+                db.execute("PRAGMA query_only=ON")
+                count = db.execute("SELECT COUNT(DISTINCT file) FROM media_parts WHERE deleted_at IS NULL AND file IN (" +
+                                   placeholders + ")", files).fetchone()[0]
+            return count == len(files)
+        except (OSError, sqlite3.Error):
+            return None
+
+    def completed_status(self, completed=None):
+        entries = completed if completed is not None else self.read()["completed"]
+        return [{**item, "plex_ready": self.plex_import_status(item.get("imported_paths", []),
+                                                                item.get("category"))}
+                for item in entries]
 
     def refresh_plex_notices(self):
         state = self.read()
@@ -615,7 +637,7 @@ class JackSparrow:
         torrents = self.rpc("torrent-get", {"ids": [int(x) for x in state["jobs"]],
                                              "fields": ["id", "name", "percentDone", "status", "rateDownload",
                                                         "peersConnected", "peersSendingToUs", "eta", "errorString",
-                                                        "downloadDir", "files"]}).get("torrents", [])
+                                                        "sizeWhenDone", "leftUntilDone", "downloadDir", "files"]}).get("torrents", [])
         items = []
         for torrent in torrents:
             job = state["jobs"].get(str(torrent["id"]))
@@ -662,10 +684,34 @@ class JackSparrow:
                 except (OSError, ValueError, RuntimeError) as exc:
                     job["error"] = str(exc)[:160]
                 self.save(state)
+            progress = torrent.get("percentDone", 0)
+            if progress > job.get("last_progress", -1):
+                job["last_progress"] = progress
+                job["last_progress_at"] = int(time.time())
+                self.save(state)
+            status = torrent.get("status", 0)
+            rate = torrent.get("rateDownload", 0)
+            if job.get("error") or torrent.get("errorString"):
+                health = "error"
+            elif job.get("imported"):
+                health = "complete"
+            elif status == 0:
+                health = "paused"
+            elif status == 4 and not rate and time.time() - job.get("last_progress_at", time.time()) > 600:
+                health = "stalled"
+            elif status == 4 and not rate:
+                health = "waiting"
+            elif status == 4:
+                health = "downloading"
+            else:
+                health = "queued"
             items.append({"id": torrent["id"], **job, "progress": torrent.get("percentDone", 0),
-                          "status": torrent.get("status", 0),
-                          "rate": torrent.get("rateDownload", 0), "peers": torrent.get("peersConnected", 0),
-                          "eta": torrent.get("eta", -1), "error": job.get("error") or torrent.get("errorString", "")})
+                          "status": status, "health": health,
+                          "size": torrent.get("sizeWhenDone", 0), "left": torrent.get("leftUntilDone", 0),
+                          "rate": rate, "peers": torrent.get("peersConnected", 0),
+                          "eta": torrent.get("eta", -1), "error": job.get("error") or torrent.get("errorString", ""),
+                          "plex_ready": self.plex_import_status(job.get("imported_paths", []), job["category"])
+                          if job.get("imported") else None})
         return items
 
     def _import(self, torrent, job):

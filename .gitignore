@@ -18,6 +18,7 @@ preferences.json.new
 .screensaver_previous.json.new
 .jack_sparrow.json
 .jack_sparrow.json.new
+.app-icons/
 android-viewer/build/
 __pycache__/
 *.py[cod]

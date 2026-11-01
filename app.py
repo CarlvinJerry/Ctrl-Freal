@@ -13,7 +13,7 @@ from concurrent.futures import TimeoutError as FutureTimeout
 
 from flask import (
     Flask, jsonify, redirect, render_template,
-    request, session
+    request, session, send_file
 )
 from waitress import serve
 from androidtvremote2 import AndroidTVRemote
@@ -31,10 +31,14 @@ SECRET = (BASE / ".session_secret").read_text().strip()
 PORT = int(os.getenv("REMOTE_PORT", "8091"))
 MAGICMIRROR_URL = os.getenv("REMOTE_MAGICMIRROR_URL", "http://192.168.1.21:8080/")
 VIEWER_PACKAGE = "com.ctrlfreak.magicmirror"
-VIEWER_VERSION_CODE = 8
+VIEWER_VERSION_CODE = 9
 VIEWER_DREAM = f"{VIEWER_PACKAGE}/.MirrorDreamService"
 VIEWER_APK = BASE / "static" / "magicmirror-viewer.apk"
 JACK = JackSparrow(BASE, media_root=os.getenv("JACK_MEDIA_ROOT", "/media/carlvinjerry/Views"))
+APP_ICON_DIR = BASE / ".app-icons"
+APP_ICON_LOCK = threading.Lock()
+APP_ICON_THREADS = {}
+APP_ICON_LAST = {}
 
 DEFAULT_TVS = {
     "tcl": {
@@ -229,6 +233,64 @@ def launch_magicmirror_viewer(host):
                 f"{VIEWER_PACKAGE}/.ViewerActivity", "--es", "url", MAGICMIRROR_URL)
 
 
+def icon_path(tv_id, package):
+    name = hashlib.sha256(package.encode()).hexdigest() + ".png"
+    return APP_ICON_DIR / tv_id / name
+
+
+def cache_app_icons(tv_id, host, packages):
+    try:
+        ensure_magicmirror_viewer(host)
+        serial = f"{host}:5555"
+        for package in packages:
+            target = icon_path(tv_id, package)
+            if target.is_file():
+                continue
+            try:
+                adb_command(host, "shell", "am", "broadcast", "-n",
+                            f"{VIEWER_PACKAGE}/.IconExportReceiver", "--es", "package", package,
+                            timeout=8)
+                remote = f"/sdcard/Android/data/{VIEWER_PACKAGE}/files/icons/{package}.png"
+                result = subprocess.run(["adb", "-s", serial, "exec-out", "cat", remote],
+                                        capture_output=True, timeout=8, check=True)
+                data = result.stdout
+                if not data.startswith(b"\x89PNG\r\n\x1a\n") or len(data) > 500_000:
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                temp = target.with_suffix(".new")
+                temp.write_bytes(data)
+                os.replace(temp, target)
+            except (subprocess.SubprocessError, OSError, TimeoutError):
+                continue
+    except (subprocess.SubprocessError, OSError, TimeoutError):
+        app.logger.debug("Could not collect TV app icons for %s", tv_id)
+    finally:
+        with APP_ICON_LOCK:
+            APP_ICON_THREADS.pop(tv_id, None)
+
+
+def queue_app_icons(tv_id, host, apps):
+    missing = [entry["package"] for entry in apps.values()
+               if not icon_path(tv_id, entry["package"]).is_file()]
+    if not missing:
+        return
+    with APP_ICON_LOCK:
+        if tv_id in APP_ICON_THREADS or (tv_id in APP_ICON_LAST and
+                                         time.monotonic() - APP_ICON_LAST[tv_id] < 300):
+            return
+        APP_ICON_LAST[tv_id] = time.monotonic()
+        worker = threading.Thread(target=cache_app_icons, args=(tv_id, host, missing),
+                                  name="tv-app-icons", daemon=True)
+        APP_ICON_THREADS[tv_id] = worker
+        worker.start()
+
+
+def with_app_icons(tv_id, entries):
+    return {key: {**entry, "icon": (f"/api/apps/{tv_id}/icon/{entry['package']}"
+                                    if icon_path(tv_id, entry["package"]).is_file() else None)}
+            for key, entry in entries.items()}
+
+
 def installed_apps(tv_id, refresh=False):
     """Discover packages on this TV; never accept a package from the browser."""
     tvs = read_tvs()
@@ -241,7 +303,8 @@ def installed_apps(tv_id, refresh=False):
     with APP_CACHE_LOCK:
         cached = APP_CACHE.get(tv_id)
         if cached and not refresh and time.monotonic() - cached[0] < 300:
-            return cached[1]
+            queue_app_icons(tv_id, tvs[tv_id]["host"], cached[1])
+            return with_app_icons(tv_id, cached[1])
     host = tvs[tv_id]["host"]
     output = adb_command(host, "shell", "pm", "list", "packages", timeout=8)
     packages = {
@@ -271,7 +334,8 @@ def installed_apps(tv_id, refresh=False):
         discovered[id_] = {"name": name, "package": package, "component": launchers[package]}
     with APP_CACHE_LOCK:
         APP_CACHE[tv_id] = (time.monotonic(), discovered)
-    return discovered
+    queue_app_icons(tv_id, host, discovered)
+    return with_app_icons(tv_id, discovered)
 
 
 async def _lg_apps(connection):
@@ -986,7 +1050,7 @@ def jack_status():
         available = False
     return jsonify(feeds=state["feeds"], tracked=state["tracked"], matches=JACK.active_matches(),
                    notices=state["notices"], indexers=INDEXERS,
-                   completed=state["completed"], jobs=jobs,
+                   completed=JACK.completed_status(state["completed"]), jobs=jobs,
                    client_available=available)
 
 
@@ -1122,6 +1186,35 @@ def apps_for_tv(tv_id):
         return jsonify(error="Unknown TV"), 404
     except (subprocess.SubprocessError, OSError, TimeoutError, ImportError):
         return jsonify(error="Installed apps unavailable"), 503
+
+
+@app.get("/api/apps/<tv_id>/icons")
+def app_icon_status(tv_id):
+    if not authenticated():
+        return jsonify(error="Unauthorized"), 401
+    try:
+        apps = installed_apps(tv_id)
+        return jsonify(icons={key: value.get("icon") for key, value in apps.items() if value.get("icon")},
+                       total=len(apps))
+    except ValueError:
+        return jsonify(error="Unknown TV"), 404
+    except (subprocess.SubprocessError, OSError, TimeoutError, ImportError):
+        return jsonify(error="Installed apps unavailable"), 503
+
+
+@app.get("/api/apps/<tv_id>/icon/<package>")
+def app_icon(tv_id, package):
+    if not authenticated():
+        return jsonify(error="Unauthorized"), 401
+    if not PACKAGE_RE.fullmatch(package) or tv_id not in read_tvs():
+        return jsonify(error="Unknown app"), 404
+    with APP_CACHE_LOCK:
+        cached = APP_CACHE.get(tv_id)
+        allowed = cached and package in {entry["package"] for entry in cached[1].values()}
+    path = icon_path(tv_id, package)
+    if not allowed or not path.is_file():
+        return jsonify(error="Icon unavailable"), 404
+    return send_file(path, mimetype="image/png", max_age=3600)
 
 
 @app.get("/api/tvs/discover")

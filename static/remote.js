@@ -337,6 +337,16 @@ function jackCard(title, detail) {
   return card;
 }
 
+function jackBytes(value) {
+  if (!value || value < 0) return "0 B";
+  if (value < 1048576) return `${Math.max(1, Math.round(value / 1024))} KB`;
+  return value >= 1073741824 ? `${(value / 1073741824).toFixed(1)} GB` : `${(value / 1048576).toFixed(1)} MB`;
+}
+
+function jackPlexLabel(item) {
+  return item.plex_ready === true ? "Ready in Plex" : item.plex_ready === false ? "Waiting for Plex scan" : "Saved to media folder";
+}
+
 function jackReview(candidate) {
   jackCandidate = candidate;
   $("jackDialogTitle").textContent = candidate.title;
@@ -477,8 +487,18 @@ async function jackRefresh() {
     data.jobs.forEach(job => {
       const done = job.imported;
       const inPlex = ["movie", "series"].includes(job.category);
-      const detail = done ? `${inPlex ? "Saved for Plex scan" : "Saved to media folder; add a Plex library"} · ${job.category}` : `${Math.round(job.progress * 100)}% · ${job.peers} peers · ${Math.round(job.rate / 1024)} KB/s${job.error ? " · " + job.error : ""}`;
+      const labels = {error:"Needs attention", paused:"Paused", stalled:"Stalled", waiting:"Waiting for peers", downloading:"Downloading", queued:"Queued"};
+      const eta = job.eta > 0 && job.eta < 172800 ? ` · about ${job.eta < 3600 ? Math.ceil(job.eta / 60) + " min" : Math.ceil(job.eta / 3600) + " hr"} left` : "";
+      const detail = done ? `${jackPlexLabel(job)} · ${job.category}` :
+        `${labels[job.health] || "Downloading"} · ${Math.round(job.progress * 100)}% of ${jackBytes(job.size)} · ${job.peers} peers · ${jackBytes(job.rate)}/s${eta}${job.error ? " · " + job.error : ""}`;
       const card = jackCard(job.title, detail);
+      if (!done) {
+        const progress = document.createElement("progress");
+        progress.max = 100;
+        progress.value = Math.round(job.progress * 100);
+        progress.setAttribute("aria-label", `Download ${Math.round(job.progress * 100)} percent complete`);
+        card.append(progress);
+      }
       const actions = document.createElement("div");
       actions.className = "jackActions";
       async function manage(action) {
@@ -486,6 +506,13 @@ async function jackRefresh() {
         catch (error) { toast(error.message); }
       }
       if (!done) actions.append(jackButton(job.status === 0 ? "Resume" : "Pause", () => manage(job.status === 0 ? "resume" : "pause")));
+      if (job.health === "stalled" || job.health === "error") actions.append(jackButton("Find another", () => {
+        $("jackQuery").value = job.title;
+        $("jackSource").value = "indexers";
+        jackSearch();
+        $("jackResults").scrollIntoView({behavior:"smooth"});
+      }));
+      if (done && job.plex_ready === false) actions.append(jackButton("Check Plex", jackRefresh));
       actions.append(jackButton(done ? "Remove from queue" : "Remove", () => manage("remove")));
       if (done && job.category === "movie" && !job.deleted && job.imported_paths?.length) {
         actions.append(jackButton("Delete movie", async () => {
@@ -504,7 +531,8 @@ async function jackRefresh() {
       }
     });
     jackCompletedHistory.filter(item => !data.jobs.some(job => job.source_ref === item.source_ref)).forEach(item => {
-      const card = jackCard(item.title, `Saved for Plex scan · ${item.category}`);
+      const card = jackCard(item.title, `${jackPlexLabel(item)} · ${item.category}`);
+      if (item.plex_ready === false) card.append(jackButton("Check Plex", jackRefresh));
       if (item.category === "movie" && item.imported_paths?.length) card.append(jackButton("Delete movie", async () => {
         if (!confirm(`Delete ${item.title} from the Plex movie library? This removes ${item.imported_paths.length} file(s).`)) return;
         try { await jackPost("/api/jack/movie/delete", {source_ref:item.source_ref}); await jackRefresh(); toast("Movie removed from Plex library"); }
@@ -711,6 +739,8 @@ function installLongPress() {
 function renderApps() {
   const favoritesKey = `favorites:${tv}`;
   const grid = $("appGrid");
+  const gridScroll = grid.scrollTop;
+  const favoriteScroll = $("favoriteList").scrollTop;
   let favorites;
   try {
     favorites = JSON.parse(localStorage.getItem(favoritesKey) || "[]");
@@ -732,7 +762,7 @@ function renderApps() {
 
   for (const id of selectedFavorites) {
     const button = document.createElement("button");
-    button.textContent = "★ " + apps[id].name;
+    appButtonContent(button, id, true);
     button.onclick = () => launchApp(id);
     remoteFavorites.appendChild(button);
   }
@@ -744,8 +774,7 @@ function renderApps() {
 
   for (const id of ordered) {
     const button = document.createElement("button");
-    button.textContent =
-      (favorites.includes(id) ? "★ " : "") + apps[id].name;
+    appButtonContent(button, id, favorites.includes(id));
 
     button.onclick = () => launchApp(id);
     grid.appendChild(button);
@@ -769,7 +798,16 @@ function renderApps() {
       renderApps();
     };
 
-        label.append(checkbox, document.createTextNode(apps[id].name));
+    label.append(checkbox);
+    if (apps[id].icon) {
+      const icon = document.createElement("img");
+      icon.src = apps[id].icon;
+      icon.alt = "";
+      icon.loading = "lazy";
+      icon.onerror = () => icon.remove();
+      label.append(icon);
+    }
+    label.append(document.createTextNode(apps[id].name));
 
     if (favorites.includes(id)) {
       const position = favorites.indexOf(id);
@@ -804,6 +842,39 @@ function renderApps() {
 
     $("favoriteList").appendChild(label);
   }
+  grid.scrollTop = gridScroll;
+  $("favoriteList").scrollTop = favoriteScroll;
+}
+
+function appButtonContent(button, id, favorite) {
+  button.classList.add("tvAppButton");
+  if (apps[id].icon) {
+    const icon = document.createElement("img");
+    icon.src = apps[id].icon;
+    icon.alt = "";
+    icon.loading = "lazy";
+    icon.onerror = () => icon.remove();
+    button.append(icon);
+  }
+  const label = document.createElement("span");
+  label.textContent = (favorite ? "★ " : "") + apps[id].name;
+  button.append(label);
+}
+
+async function pollAppIcons() {
+  if (document.hidden || !tv || !Object.keys(apps).length) return;
+  const selectedTV = tv;
+  try {
+    const response = await fetch(`/api/apps/${encodeURIComponent(tv)}/icons`, {cache:"no-store"});
+    if (!response.ok) return;
+    const data = await response.json();
+    if (selectedTV !== tv) return;
+    let changed = false;
+    Object.entries(data.icons || {}).forEach(([id, url]) => {
+      if (apps[id] && apps[id].icon !== url) { apps[id].icon = url; changed = true; }
+    });
+    if (changed) renderApps();
+  } catch (error) { console.debug("App icons unavailable", error); }
 }
 
 function renderScenes() {
@@ -1172,6 +1243,7 @@ async function init() {
   renderApps();
   renderScenes();
   loadApps();
+  setInterval(pollAppIcons, 12000);
   $("saveScene").onclick = saveScene;
   $("toggleScreensaver").onclick = toggleScreensaver;
   updateScreensaverStatus();
