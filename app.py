@@ -10,6 +10,7 @@ import hashlib
 import base64
 import io
 import ipaddress
+import socket
 from tv_pairing import discover_android, discover_webos, start_pairing, pairing_state, finish_pairing
 from pathlib import Path
 from concurrent.futures import TimeoutError as FutureTimeout
@@ -434,6 +435,7 @@ class TVConnection:
         self.last_command = None
         self.last_success = None
         self.lock = asyncio.Lock()
+        self.connect_lock = asyncio.Lock()
         self.last_adb_refresh = 0
 
     def availability(self, value):
@@ -460,19 +462,21 @@ class TVConnection:
             self.volume = None
 
     async def connect(self):
+        async with self.connect_lock:
+            return await self._connect()
+
+    async def _connect(self):
         if self.connected and self.remote is not None:
             return
 
         if self.remote is not None:
             # Allow the existing background reconnection to recover.
-            for _ in range(30):
+            for _ in range(10):
                 if self.connected:
                     return
                 await asyncio.sleep(0.2)
-
-            raise ConnectionError(
-                "TV is reconnecting; please try again"
-            )
+            self.remote.disconnect()
+            self.remote = None
 
         self.connected = False
         remote = AndroidTVRemote(
@@ -604,10 +608,21 @@ class LGConnection:
         self.last_command = None
         self.last_success = None
         self.lock = asyncio.Lock()
+        self.connect_lock = asyncio.Lock()
 
     async def connect(self):
+        async with self.connect_lock:
+            return await self._connect()
+
+    async def _connect(self):
         if self.connected and self.remote:
             return
+        if self.remote is not None:
+            try:
+                await self.remote.disconnect()
+            except Exception:
+                pass
+            self.remote = None
         from aiowebostv import WebOsClient
         client = WebOsClient(self.config["host"], self.config["client_key"])
         if not await asyncio.wait_for(client.connect(), timeout=10):
@@ -756,39 +771,81 @@ class Controller:
 
 controller = Controller()
 
+def tv_port_available(host, port):
+    try:
+        with socket.create_connection((host, port), timeout=0.5):
+            return True
+    except OSError:
+        return False
+
 async def recover_saved_tvs():
-    """Find a saved Android TV at a new IP using its existing pairing certificate."""
+    """Recover paired TVs after DHCP changes without pairing a different device."""
     async with RECOVERY_LOCK:
         tvs = read_tvs()
-        missing = [tv_id for tv_id, config in reversed(list(tvs.items()))
-                   if config.get("type", "android") == "android"
-                   and not controller.get(tv_id).connected]
-        if not missing:
+        missing_android = [tv_id for tv_id, config in reversed(list(tvs.items()))
+                           if config.get("type", "android") == "android"
+                           and not controller.get(tv_id).connected]
+        missing_lg = [tv_id for tv_id, config in reversed(list(tvs.items()))
+                      if config.get("type") == "webos" and config.get("mac")
+                      and not controller.get(tv_id).connected]
+        if not missing_android and not missing_lg:
             return []
-        candidates = await asyncio.to_thread(discover_android, 2,
-                                             [tvs[tv_id]["host"] for tv_id in missing])
+        recovered = []
+        for tv_id in missing_android + missing_lg:
+            connection = controller.get(tv_id)
+            port = 3000 if tv_id in missing_lg else 6466
+            if not await asyncio.to_thread(tv_port_available, connection.config["host"], port):
+                continue
+            try:
+                await connection.connect()
+            except Exception:
+                continue
+            if connection.connected:
+                recovered.append(tv_id)
+        missing_android = [tv_id for tv_id in missing_android if tv_id not in recovered]
+        missing_lg = [tv_id for tv_id in missing_lg if tv_id not in recovered]
+        if not missing_android and not missing_lg:
+            return recovered
+        android_candidates = (await asyncio.to_thread(
+            discover_android, 2, [tvs[tv_id]["host"] for tv_id in missing_android]
+        )) if missing_android else []
+        lg_candidates = (await asyncio.to_thread(
+            discover_webos, 2, [tvs[tv_id]["host"] for tv_id in missing_lg]
+        )) if missing_lg else []
         occupied = {tvs[tv_id]["host"] for tv_id in tvs
                     if controller.get(tv_id).connected}
-        recovered = []
-        for tv_id in missing:
+        for tv_id in missing_android + missing_lg:
             connection = controller.get(tv_id)
             if connection.connected:
                 continue
+            is_lg = tvs[tv_id].get("type") == "webos"
+            candidates = lg_candidates if is_lg else android_candidates
             for candidate in candidates:
                 host = candidate["host"]
                 if host == connection.config["host"] or host in occupied:
                     continue
-                probe = AndroidTVRemote(client_name="CarlPi Remote", host=host,
-                                        certfile=safe_file(connection.config["cert"]),
-                                        keyfile=safe_file(connection.config["key"]))
-                try:
-                    await asyncio.wait_for(probe.async_connect(), timeout=5)
-                except Exception:
+                if is_lg:
+                    candidate_mac = await asyncio.to_thread(neighbor_mac, host)
+                    if candidate_mac != connection.config.get("mac"):
+                        continue
+                else:
+                    probe = AndroidTVRemote(client_name="CarlPi Remote", host=host,
+                                            certfile=safe_file(connection.config["cert"]),
+                                            keyfile=safe_file(connection.config["key"]))
+                    try:
+                        await asyncio.wait_for(probe.async_connect(), timeout=5)
+                    except Exception:
+                        probe.disconnect()
+                        continue
                     probe.disconnect()
-                    continue
-                probe.disconnect()
                 if connection.remote is not None:
-                    connection.remote.disconnect()
+                    if is_lg:
+                        try:
+                            await connection.remote.disconnect()
+                        except Exception:
+                            pass
+                    else:
+                        connection.remote.disconnect()
                     connection.remote = None
                 connection.connected = False
                 with CONFIG_LOCK:

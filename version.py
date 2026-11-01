@@ -1,3 +1,3 @@
 """Ctrl Freak application version (semantic versioning)."""
 
-APP_VERSION = "3.12.1"
+APP_VERSION = "3.13.0"

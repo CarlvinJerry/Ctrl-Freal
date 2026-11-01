@@ -4,7 +4,7 @@ Self-hosted remote for Android TV / Google TV and LG webOS. The Raspberry Pi run
 
 ## Version
 
-Current app version: **3.12.1**. `version.py` is the single source for the displayed version and bootstrap API. Use semantic versioning (`MAJOR.MINOR.PATCH`): increment major for incompatible releases, minor for backward-compatible features, and patch for fixes. Update `version.py` with each release.
+Current app version: **3.13.0**. `version.py` is the single source for the displayed version and bootstrap API. Use semantic versioning (`MAJOR.MINOR.PATCH`): increment major for incompatible releases, minor for backward-compatible features, and patch for fixes. Update `version.py` with each release.
 
 ## Add a TV
 
@@ -27,7 +27,7 @@ Discovery requires the Pi and TVs to share a network that permits mDNS and SSDP 
 
 Status refreshes every three seconds. On Android TVs that do not publish volume or foreground app through Android TV Remote v2, Ctrl Freak reads those values through ADB about every ten seconds. Device diagnostics and app discovery reconnect ADB when the TV is reachable and previously authorized. A newly opened phone selects a reachable TV when an older saved TV address is offline. Enable network ADB on the TV for these features and for automatic MagicMirror viewer installation.
 
-Paired TVs and credentials stay in `tvs.json` on the Pi. Every two minutes, Ctrl Freak searches for disconnected saved Android TVs and verifies a discovered address with the TV's existing pairing certificate before updating the saved IP. Discovery tries network announcements first, then checks the saved TV's private /24 subnet for Android TV Remote or ADB ports. The **Find saved TVs** button in Settings runs the same check immediately. **Refresh memory & storage** reads the selected TV's current RAM and storage values; those values also refresh every 30 seconds. The TV must be awake and accept its existing pairing certificate before its IP can be changed automatically. LG webOS pairing stays saved, but IP recovery for LG still requires pairing again if its IP changes.
+Paired TVs and credentials stay in `tvs.json` on the Pi. Every two minutes, Ctrl Freak searches for disconnected saved TVs and updates their IP if the same TV has moved. Android TV discovery combines network announcements and local subnet checks, then verifies the existing pairing certificate. LG webOS discovery combines SSDP and local subnet checks, then matches the saved TV network address before updating its IP. The **Find saved TVs** button in Settings runs the same check immediately. **Refresh memory & storage** reads the selected TV's current RAM and storage values; those values also refresh every 30 seconds. TVs must be awake and reachable from the Pi for IP recovery. Both Wi-Fi bands must allow local device traffic; router isolation cannot be bypassed by the app.
 
 ## Household features
 
@@ -60,3 +60,5 @@ Paired TVs and credentials stay in `tvs.json` on the Pi. Every two minutes, Ctrl
 **v3.12.0:** LG webOS power uses the live webOS shutdown command and Wake-on-LAN for power-on. The Pi remembers the LG TV's network address while it is connected; LG's Mobile TV On / Turn On via Wi-Fi setting must be enabled. The MagicMirror Android viewer fits its own WebView to the TV viewport instead of assuming 1920×1080. The original MagicMirror server layout remains independent of the viewer.
 
 **v3.12.1:** The Pi's local MagicMirror Electron window reopens when the HDMI display changes resolution after the LG wakes. This keeps the original mirror layout responsive without changing its server CSS or the Android TV viewer. The TCL pairing was verified after it rejoined Wi-Fi; keep both Wi-Fi bands on the same LAN and reserve TV and Pi addresses in the router.
+
+**v3.13.0:** Saved Android TVs can be found by subnet checks even when another TV's network announcement is received. Saved LG TVs can now be recovered at a new IP without pairing again when their previously saved MAC address matches. Stale connections at the same IP are refreshed, too. These checks run automatically and through **Find saved TVs**.

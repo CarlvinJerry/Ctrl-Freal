@@ -114,12 +114,42 @@ def discover_android(seconds=4, subnet_hosts=None):
         browser.cancel()
     finally:
         zc.close()
-    if found:
-        return list(found.values())
-    return scan_android_subnets(subnet_hosts)
+    if subnet_hosts:
+        for item in scan_android_subnets(subnet_hosts):
+            found.setdefault(item["host"], item)
+    elif not found:
+        for item in scan_android_subnets():
+            found[item["host"]] = item
+    return list(found.values())
 
 
-def discover_webos(seconds=3):
+def scan_webos_subnets(subnet_hosts):
+    """Find webOS listeners near saved addresses when multicast cannot cross bands."""
+    networks = []
+    for host in subnet_hosts:
+        try:
+            network = ipaddress.ip_network(f"{valid_host(host)}/24", strict=False)
+        except ValueError:
+            continue
+        if network not in networks:
+            networks.append(network)
+        if len(networks) >= 3:
+            break
+
+    def reachable(host):
+        try:
+            with socket.create_connection((host, 3000), timeout=0.25):
+                return host
+        except OSError:
+            return None
+
+    addresses = (str(ip) for network in networks for ip in network.hosts())
+    with ThreadPoolExecutor(max_workers=64) as pool:
+        found = [host for host in pool.map(reachable, addresses) if host]
+    return [{"name": "LG webOS TV", "host": host, "type": "webos"} for host in found]
+
+
+def discover_webos(seconds=3, subnet_hosts=None):
     target = "urn:lge-com:service:webos-second-screen:1"
     packet = ("M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\n"
               'MAN: "ssdp:discover"\r\nMX: 2\r\nST: ' + target + "\r\n\r\n").encode()
@@ -141,6 +171,9 @@ def discover_webos(seconds=3):
             except ValueError:
                 continue
             found[host] = {"name": "LG webOS TV", "host": host, "type": "webos"}
+    if subnet_hosts:
+        for item in scan_webos_subnets(subnet_hosts):
+            found.setdefault(item["host"], item)
     return list(found.values())
 
 
