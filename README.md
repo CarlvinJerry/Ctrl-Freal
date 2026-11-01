@@ -4,7 +4,7 @@ Self-hosted remote for Android TV / Google TV and LG webOS. The Raspberry Pi run
 
 ## Version
 
-Current app version: **3.11.0**. `version.py` is the single source for the displayed version and bootstrap API. Use semantic versioning (`MAJOR.MINOR.PATCH`): increment major for incompatible releases, minor for backward-compatible features, and patch for fixes. Update `version.py` with each release.
+Current app version: **3.11.1**. `version.py` is the single source for the displayed version and bootstrap API. Use semantic versioning (`MAJOR.MINOR.PATCH`): increment major for incompatible releases, minor for backward-compatible features, and patch for fixes. Update `version.py` with each release.
 
 ## Add a TV
 
@@ -51,4 +51,6 @@ Paired TVs and credentials stay in `tvs.json` on the Pi. Every two minutes, Ctrl
 
 **v3.10.1:** The version and builder signoff follows the selected accent color.
 
-**v3.11.0:** TCL Android TV screensaver setup restores the MagicMirror viewer's auto-start permission and reports when the TV blocks it. The power button supports one tap for standby/wake, three taps for full Android shutdown, five taps for restart, and the existing long press for the TV power menu. Shutdown and restart require confirmation and Android TV debugging. A fully shut down TV may need its physical remote to start again.
+**v3.11.0:** TCL Android TV screensaver setup restores the MagicMirror viewer's auto-start permission and reports when the TV blocks it. The power button supports one tap for standby/wake, three taps for full Android shutdown, five taps for restart, and the existing long press for the TV power menu. Android TV debugging is required for shutdown and restart. A fully shut down TV may need its physical remote to start again.
+
+**v3.11.1:** Three-tap shutdown and five-tap restart run directly without confirmation prompts.

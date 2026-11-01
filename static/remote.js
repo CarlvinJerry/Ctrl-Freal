@@ -742,10 +742,10 @@ function installLongPress() {
         if (count === 1) key("power");
         else if (count === 3) {
           if (tvTypes[tv] !== "android") return toast("Full shutdown needs Android TV debugging");
-          if (confirm("Shut down this TV completely? The phone remote may not be able to turn it back on; use the physical remote if needed.")) command("power_shutdown", "power");
+          command("power_shutdown", "power");
         } else if (count === 5) {
           if (tvTypes[tv] !== "android") return toast("Restart needs Android TV debugging");
-          if (confirm("Restart this TV now? It will disconnect briefly.")) command("power_reboot", "power");
+          command("power_reboot", "power");
         } else if (count) toast("Power: tap once for standby, 3 times to shut down, or 5 times to restart");
       };
       const registerTap = () => {
