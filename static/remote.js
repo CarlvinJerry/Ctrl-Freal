@@ -20,13 +20,16 @@ let jackJobs = [];
 let jackCompletedHistory = [];
 let jackResultsRaw = [];
 let jackSearchSerial = 0;
+let ambientArtwork = "";
+let mediaFreeBytes = null;
 const specialApps = {magicmirror:{name:"MagicMirror", package:"magicmirror"}};
 
 const $ = id => document.getElementById(id);
 
-function toast(message) {
+function toast(message, kind = "") {
   const el = $("toast");
   el.textContent = message;
+  el.classList.toggle("completionToast", kind === "complete");
   el.style.display = "block";
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.style.display = "none", 2500);
@@ -43,7 +46,7 @@ function localPreferences() {
   return {theme:localStorage.getItem("theme") || "dark-glass",
           accent:localStorage.getItem("accentColor") || "blue",
           haptics:localStorage.getItem("haptics") !== "false",
-          favorites, scenes:[]};
+          favorites, scenes:[], profiles:JSON.parse(localStorage.getItem("roomProfiles") || "{}")} ;
 }
 
 function applySharedPreferences(prefs) {
@@ -51,9 +54,27 @@ function applySharedPreferences(prefs) {
   localStorage.setItem("theme", prefs.theme);
   localStorage.setItem("accentColor", prefs.accent);
   localStorage.setItem("haptics", String(prefs.haptics));
+  localStorage.setItem("roomProfiles", JSON.stringify(prefs.profiles || {}));
   for (const id of Object.keys(tvNames)) {
     localStorage.setItem(`favorites:${id}`, JSON.stringify(prefs.favorites?.[id] || []));
   }
+}
+
+function roomProfile() {
+  return prefDraft?.profiles?.[tv] || {theme:prefDraft?.theme || "dark-glass",
+    accent:prefDraft?.accent || "blue", effects:"subtle", glass:"balanced",
+    background:"none", dim:45, blur:8};
+}
+
+function applyRoomBackground() {
+  const profile = roomProfile();
+  const image = profile.background === "custom" ? `/api/background/${encodeURIComponent(tv)}?v=${localStorage.getItem(`backgroundVersion:${tv}`) || "0"}` :
+    profile.background === "artwork" ? ambientArtwork : "";
+  document.body.style.setProperty("--room-image", image ? `url("${image}")` : "none");
+  document.body.style.setProperty("--room-dim", String(image ? (profile.dim ?? 45) / 100 : 0));
+  document.body.style.setProperty("--room-blur", `${profile.blur ?? 8}px`);
+  document.body.dataset.glass = profile.glass || "balanced";
+  document.body.dataset.effects = profile.effects || "subtle";
 }
 
 async function preferencesRequest(preferences, onlyIfMissing = false) {
@@ -363,6 +384,11 @@ function jackReview(candidate) {
   $("jackDialogSource").textContent = candidate.source === "archive" ? "Internet Archive catalog" : candidate.source === "feed" ? "Saved torrent feed" : candidate.source === "indexer" ? candidate.indexer_name : "Your magnet link";
   $("jackDownloadQuality").value = ["480p","720p","1080p","2160p"].includes(candidate.quality) ? candidate.quality : "any";
   $("jackDownloadType").value = candidate.category || (/S\d{1,2}E\d{1,2}/i.test(candidate.title) ? "series" : "movie");
+  const estimate = Number(candidate.size || candidate.size_bytes || 0);
+  $("jackStorageForecast").textContent = mediaFreeBytes === null ? "Storage information is loading." :
+    estimate > 0 ? `${jackBytes(estimate)} needed · ${jackBytes(mediaFreeBytes)} free${estimate > mediaFreeBytes ? " · Not enough space" : mediaFreeBytes - estimate < 10 * 1024 ** 3 ? " · Storage will be low" : ""}` :
+    `${jackBytes(mediaFreeBytes)} free · Size unavailable from source`;
+  $("jackConfirmDownload").disabled = estimate > 0 && mediaFreeBytes !== null && estimate > mediaFreeBytes;
   $("jackDialog").showModal();
 }
 
@@ -521,6 +547,7 @@ async function jackRefresh() {
       }));
       $("jackFeeds").append(card);
     });
+    const openJobDetails = new Set([...$("jackJobs").querySelectorAll("details[open]")].map(node => node.dataset.job));
     $("jackJobs").replaceChildren();
     $("jackArchivedJobs").replaceChildren();
     let archiveCount = 0;
@@ -562,13 +589,21 @@ async function jackRefresh() {
           catch (error) { toast(error.message); }
         }));
       }
-      card.append(actions);
+      const detailSheet = document.createElement("details");
+      detailSheet.className = "downloadDetails";
+      detailSheet.dataset.job = String(job.id);
+      detailSheet.open = openJobDetails.has(String(job.id));
+      const summary = document.createElement("summary"); summary.textContent = "Details & actions";
+      const metrics = document.createElement("p"); metrics.className = "hint";
+      metrics.textContent = `${jackBytes(job.left || 0)} remaining · ${jackBytes(job.rate || 0)}/s · ${job.peers || 0} peers${job.error ? " · " + job.error : ""}`;
+      detailSheet.append(summary, metrics, actions);
+      card.append(detailSheet);
       (done ? $("jackArchivedJobs") : $("jackJobs")).append(card);
       if (done) archiveCount++;
       const noticeKey = `jackCompleted:${job.id}`;
       if (done && !localStorage.getItem(noticeKey)) {
         localStorage.setItem(noticeKey, "1");
-        toast(inPlex ? `${job.title} finished; Plex will scan it` : `${job.title} is saved; add a Plex library`);
+        toast(inPlex ? `${job.title} finished; Plex will scan it` : `${job.title} is saved; add a Plex library`, "complete");
       }
     });
     jackCompletedHistory.filter(item => !data.jobs.some(job => job.source_ref === item.source_ref)).forEach(item => {
@@ -1136,6 +1171,8 @@ async function loadContinueWatching() {
     const response = await fetch("/api/plex/continue", {cache:"no-store"});
     if (!response.ok) return;
     const data = await response.json();
+    ambientArtwork = (data.items || []).find(item => item.artwork)?.artwork || "";
+    if (prefDraft?.profiles?.[tv]?.background === "artwork") applyRoomBackground();
     const row = $("continueRow");
     row.replaceChildren();
     for (const item of data.items || []) {
@@ -1164,8 +1201,10 @@ async function updateEcosystem() {
       strip.append(chip);
     }
     if (data.storage) {
+      mediaFreeBytes = data.storage.free;
       const chip = document.createElement("span");
       chip.textContent = `${jackBytes(data.storage.free)} free`;
+      if (data.storage.free < 10 * 1024 ** 3) chip.className = "healthBad";
       strip.append(chip);
     }
   } catch (error) { console.debug("Pi health unavailable", error); }
@@ -1357,6 +1396,7 @@ async function init() {
     apps = {};
     renderApps();
     renderScenes();
+    applyRoomProfile();
     loadApps();
     updateStatus();
     updateDeviceInfo();
@@ -1395,6 +1435,10 @@ async function init() {
   installVoice();
   installPairing();
   $("magicMirrorShortcut").onclick = () => launchApp("magicmirror");
+  $("quickPlex").onclick = () => launchApp("plex");
+  $("quickMirror").onclick = () => launchApp("magicmirror");
+  $("quickDownloads").onclick = () => { selectTab("jack"); $("jackJobs").scrollIntoView({behavior:"smooth",block:"start"}); };
+  $("quickSwitch").onclick = () => { $("tvSelect").focus(); try { $("tvSelect").showPicker?.(); } catch {} };
   renderApps();
   renderScenes();
   loadApps();
@@ -1449,6 +1493,9 @@ async function init() {
   "dark-glass",
   "light-glass",
   "midnight",
+  "frost",
+  "warm-cinema",
+  "high-contrast",
   "dark",
   "light"
 ];
@@ -1462,7 +1509,7 @@ function applyTheme(theme) {
     "light",
     "dark-glass",
     "light-glass",
-    "midnight"
+    "midnight", "frost", "warm-cinema", "high-contrast"
   );
 
   if (selected === "light") {
@@ -1475,12 +1522,32 @@ function applyTheme(theme) {
   localStorage.setItem("theme", selected);
 }
 
+function applyRoomProfile() {
+  const profile = roomProfile();
+  applyTheme(profile.theme);
+  setAccent(profile.accent);
+  $("backgroundMode").value = profile.background;
+  $("backgroundDim").value = profile.dim;
+  $("backgroundBlur").value = profile.blur;
+  $("dimValue").value = `${profile.dim}%`;
+  $("blurValue").value = `${profile.blur}px`;
+  $("glassStrength").value = profile.glass;
+  $("effectsLevel").value = profile.effects;
+  applyRoomBackground();
+}
+
+function saveRoomProfile(changes) {
+  prefDraft.profiles ||= {};
+  prefDraft.profiles[tv] = {...roomProfile(), ...changes};
+  applyRoomProfile();
+  queuePreferencesSave();
+}
+
 applyTheme(localStorage.getItem("theme") || "dark-glass");
 
 $("themeSelect").onchange = () => {
-  applyTheme($("themeSelect").value);
   prefDraft.theme = $("themeSelect").value;
-  queuePreferencesSave();
+  saveRoomProfile({theme:$("themeSelect").value});
 };
 
   // Persistent accent choice; only CSS variables change, never TV commands.
@@ -1508,13 +1575,69 @@ $("themeSelect").onchange = () => {
     button.setAttribute("aria-label", name + " accent");
     button.title = name;
     button.onclick = () => {
-      setAccent(name);
       prefDraft.accent = name;
-      queuePreferencesSave();
+      saveRoomProfile({accent:name});
     };
     accentOptions.appendChild(button);
   }
   setAccent(localStorage.getItem("accentColor") || "blue");
+  applyRoomProfile();
+  $("backgroundMode").onchange = () => saveRoomProfile({background:$("backgroundMode").value});
+  $("glassStrength").onchange = () => saveRoomProfile({glass:$("glassStrength").value});
+  $("effectsLevel").onchange = () => saveRoomProfile({effects:$("effectsLevel").value});
+  for (const [id, field] of [["backgroundDim", "dim"], ["backgroundBlur", "blur"]]) {
+    $(id).oninput = () => {
+      const profile = roomProfile();
+      prefDraft.profiles ||= {};
+      prefDraft.profiles[tv] = {...profile, [field]:Number($(id).value)};
+      $(field === "dim" ? "dimValue" : "blurValue").value = $(id).value + (field === "dim" ? "%" : "px");
+      applyRoomBackground();
+    };
+    $(id).onchange = queuePreferencesSave;
+  }
+  $("backgroundUpload").onchange = async () => {
+    const file = $("backgroundUpload").files[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) return toast("Choose an image under 5 MB");
+    const form = new FormData(); form.append("image", file);
+    try {
+      const response = await fetch(`/api/background/${encodeURIComponent(tv)}`, {method:"POST",headers:{"X-CSRF-Token":csrf},body:form});
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Image upload failed");
+      localStorage.setItem(`backgroundVersion:${tv}`, String(Date.now()));
+      saveRoomProfile({background:"custom"});
+      toast("Room background saved");
+    } catch (error) { toast(error.message); }
+    $("backgroundUpload").value = "";
+  };
+  $("exportBackup").onclick = async () => {
+    const password = $("backupPassword").value;
+    if (password.length < 12) return toast("Use at least 12 characters for the backup password");
+    $("backupMessage").textContent = "Preparing encrypted backup…";
+    try {
+      const response = await fetch("/api/backup/export", {method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},body:JSON.stringify({password})});
+      if (!response.ok) throw new Error((await response.json()).error || "Backup failed");
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a"); link.href = url; link.download = "ctrl-freak.cfbackup"; link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      $("backupMessage").textContent = "Backup downloaded. Keep its password safe.";
+    } catch (error) { $("backupMessage").textContent = error.message; }
+  };
+  $("restoreBackup").onclick = async () => {
+    const file = $("restoreFile").files[0];
+    const password = $("backupPassword").value;
+    if (!file || !password) return toast("Choose a backup and enter its password");
+    if (!confirm("Restore paired TVs and settings from this backup? Existing downloads will stay in place.")) return;
+    const form = new FormData(); form.append("backup", file); form.append("password", password);
+    $("backupMessage").textContent = "Restoring backup…";
+    try {
+      const response = await fetch("/api/backup/restore", {method:"POST",headers:{"X-CSRF-Token":csrf},body:form});
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Restore failed");
+      $("backupMessage").textContent = `${result.tvs} TVs restored. Reloading…`;
+      setTimeout(() => location.reload(), 900);
+    } catch (error) { $("backupMessage").textContent = error.message; }
+  };
 
   $("haptics").checked =
     localStorage.getItem("haptics") !== "false";
@@ -1533,8 +1656,7 @@ $("themeSelect").onchange = () => {
       const {preferences} = await response.json();
       if (!preferences || JSON.stringify(preferences) === JSON.stringify(prefDraft)) return;
       applySharedPreferences(preferences);
-      applyTheme(preferences.theme);
-      setAccent(preferences.accent);
+      applyRoomProfile();
       $("haptics").checked = preferences.haptics;
       renderApps();
       renderScenes();

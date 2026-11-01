@@ -81,6 +81,10 @@
 
 <section id="remote" class="panel active">
   <div class="sectionHeading"><div><span class="eyebrow">CONTROL CENTER</span><h2>Remote</h2></div><span class="sectionPill">Living room</span></div>
+  <div class="quickActions" aria-label="Quick actions">
+    <button id="quickPlex" type="button">▶ Open Plex</button><button id="quickMirror" type="button">▣ Mirror</button>
+    <button id="quickDownloads" type="button">↓ Downloads</button><button id="quickSwitch" type="button">⇄ Switch TV</button>
+  </div>
   <div class="mode">
     <button id="padMode" class="selected">D-Pad</button>
     <button id="touchMode">Touchpad</button>
@@ -194,10 +198,19 @@
   <option value="dark-glass">Dark Glass</option>
   <option value="light-glass">Light Glass</option>
   <option value="midnight">Midnight</option>
+  <option value="frost">Frost</option>
+  <option value="warm-cinema">Warm Cinema</option>
+  <option value="high-contrast">High Contrast</option>
   <option value="dark">Classic Dark</option>
   <option value="light">Classic Light</option>
 </select>
   </label>
+  <p class="hint">Appearance is saved for the selected TV and shared with your other phones.</p>
+  <label>Background<select id="backgroundMode"><option value="none">Theme colors</option><option value="custom">My photo</option><option value="artwork">Plex artwork ambience</option></select></label>
+  <label>Upload a room photo<input id="backgroundUpload" type="file" accept="image/jpeg,image/png,image/webp"></label>
+  <div class="appearanceSliders"><label>Image dim <output id="dimValue">45%</output><input id="backgroundDim" type="range" min="0" max="85" value="45"></label><label>Image blur <output id="blurValue">8px</output><input id="backgroundBlur" type="range" min="0" max="24" value="8"></label></div>
+  <label>Glass strength<select id="glassStrength"><option value="clear">Clear</option><option value="balanced">Balanced</option><option value="solid">Solid</option></select></label>
+  <label>Effects<select id="effectsLevel"><option value="off">Off</option><option value="subtle">Subtle</option><option value="full">Full</option></select></label>
   <div class="accentPicker"><span class="settingLabel">Accent color</span><div id="accentOptions" class="accentOptions" role="group" aria-label="Accent color"></div></div>
   <label>
     <input type="checkbox" id="haptics" checked>
@@ -256,6 +269,13 @@
   <p class="hint">Pairing stays saved on the Pi. Find a saved TV again if its IP address changes.</p>
   <button id="reconnectSaved" type="button">Find saved TVs</button>
   <p id="reconnectSavedMessage" class="hint" role="status"></p>
+  <h3>Backup &amp; restore</h3>
+  <p class="hint">Download a password-protected backup of paired TVs, preferences and Jack sources. Keep the password safe.</p>
+  <label>Backup password<input id="backupPassword" type="password" autocomplete="new-password" minlength="12" placeholder="At least 12 characters"></label>
+  <button id="exportBackup" type="button">Download backup</button>
+  <label>Restore a backup<input id="restoreFile" type="file" accept=".cfbackup,application/octet-stream"></label>
+  <button id="restoreBackup" type="button">Restore backup</button>
+  <p id="backupMessage" class="hint" role="status"></p>
   <p class="hint">Add another TV using the Add TV button beside the selector.</p>
   <a href="/logout">Lock remote</a>
 </section>
@@ -296,6 +316,7 @@
   <p id="jackDialogSource" class="hint"></p>
   <label>Plex library<select id="jackDownloadType"><option value="movie">Movies</option><option value="series">Series</option><option value="music">Music (add Plex library first)</option><option value="other">Other videos (add Plex library first)</option></select></label>
   <label>Preferred quality<select id="jackDownloadQuality"><option value="any">Any available</option><option value="480p">480p</option><option value="720p">720p</option><option value="1080p">1080p</option><option value="2160p">4K</option></select></label>
+  <p id="jackStorageForecast" class="hint" role="status"></p>
   <p class="hint">Check the source and your right to download it. Import starts after the download completes.</p>
   <div class="jackActions"><button id="jackCancelDownload" type="button">Cancel</button><button id="jackConfirmDownload" class="primary" type="button">Start download</button></div>
 </dialog>

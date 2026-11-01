@@ -287,7 +287,12 @@ class JackSparrow:
                             seeders = max(0, int(node.text or "0"))
                         except ValueError:
                             pass
-                results.append({"title": title[:180], "source": "feed", "url": link,
+                enclosure = next((node for node in item.iter() if node.tag.rsplit("}", 1)[-1].lower() == "enclosure"), None)
+                try:
+                    size = max(0, int(enclosure.get("length", "0"))) if enclosure is not None else 0
+                except ValueError:
+                    size = 0
+                results.append({"title": title[:180], "source": "feed", "url": link, "size": size,
                                 "quality": quality_of(title), "seeders": seeders,
                                 "language": language_of(title, language),
                                 "category": category_of(title, category),
@@ -351,9 +356,13 @@ class JackSparrow:
                 seeders = int(attrs.get("seeders") or 0)
             except ValueError:
                 seeders = None
+            try:
+                size = max(0, int(item.findtext("size") or attrs.get("size") or 0))
+            except ValueError:
+                size = 0
             results.append({"title": title[:180], "source": "indexer", "indexer": name,
                             "indexer_name": INDEXERS[name], "id": ref, "_download": link,
-                            "quality": quality_of(title), "seeders": seeders,
+                            "quality": quality_of(title), "seeders": seeders, "size": size,
                             "language": language_of(title), "category": category,
                             "date": self._date(item.findtext("pubDate") or "")})
         return results

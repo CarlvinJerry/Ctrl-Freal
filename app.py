@@ -7,6 +7,9 @@ import threading
 import time
 import re
 import hashlib
+import base64
+import io
+import ipaddress
 from tv_pairing import discover_android, discover_webos, start_pairing, pairing_state, finish_pairing
 from pathlib import Path
 from concurrent.futures import TimeoutError as FutureTimeout
@@ -20,6 +23,7 @@ from androidtvremote2 import AndroidTVRemote
 from version import APP_VERSION
 from jack_sparrow import JackSparrow, INDEXERS
 from plex_extras import PlexExtras
+from backup_bundle import seal, unseal, credential_names, make_bundle
 import sqlite3
 
 BASE = Path(__file__).resolve().parent
@@ -72,7 +76,7 @@ app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Strict",
     PERMANENT_SESSION_LIFETIME=86400 * 30,
-    MAX_CONTENT_LENGTH=16384,
+    MAX_CONTENT_LENGTH=8 * 1024 * 1024,
 )
 
 KEYS = {
@@ -108,8 +112,11 @@ RECOVERY_LOCK = asyncio.Lock()
 PACKAGE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$")
 SCENE_ID_RE = re.compile(r"^[a-z0-9_-]{1,40}$")
 APP_ID_RE = re.compile(r"^[A-Za-z0-9_.-]{1,120}$")
-THEMES = {"dark-glass", "light-glass", "midnight", "dark", "light"}
+THEMES = {"dark-glass", "light-glass", "midnight", "dark", "light", "frost", "warm-cinema", "high-contrast"}
 ACCENTS = {"blue", "violet", "mint", "coral", "amber", "pink"}
+EFFECTS = {"off", "subtle", "full"}
+GLASS = {"clear", "balanced", "solid"}
+BACKGROUNDS = BASE / ".backgrounds"
 
 
 def read_preferences():
@@ -118,7 +125,7 @@ def read_preferences():
     return json.loads(PREFERENCES.read_text())
 
 
-def validate_preferences(data):
+def validate_preferences(data, tv_config=None):
     if not isinstance(data, dict):
         raise ValueError("Invalid preferences")
     theme, accent, haptics = data.get("theme"), data.get("accent"), data.get("haptics")
@@ -140,7 +147,7 @@ def validate_preferences(data):
     if not isinstance(scenes, list) or len(scenes) > 12:
         raise ValueError("Too many scenes")
     clean_scenes = []
-    tvs = read_tvs()
+    tvs = tv_config if tv_config is not None else read_tvs()
     for item in scenes:
         if not isinstance(item, dict):
             raise ValueError("Invalid scene")
@@ -163,8 +170,26 @@ def validate_preferences(data):
                              "app": app_id, "volume": volume})
     if len({item["id"] for item in clean_scenes}) != len(clean_scenes):
         raise ValueError("Duplicate scene IDs")
+    profiles = data.get("profiles", {})
+    if not isinstance(profiles, dict) or len(profiles) > 30:
+        raise ValueError("Invalid room profiles")
+    clean_profiles = {}
+    for tv_id, profile in profiles.items():
+        if tv_id not in tvs or not isinstance(profile, dict):
+            raise ValueError("Unknown room profile")
+        look = {"theme": profile.get("theme", theme), "accent": profile.get("accent", accent),
+                "effects": profile.get("effects", "subtle"), "glass": profile.get("glass", "balanced"),
+                "background": profile.get("background", "none"), "dim": profile.get("dim", 45),
+                "blur": profile.get("blur", 8)}
+        if (look["theme"] not in THEMES or look["accent"] not in ACCENTS or
+                look["effects"] not in EFFECTS or look["glass"] not in GLASS or
+                look["background"] not in ("none", "custom", "artwork") or
+                type(look["dim"]) is not int or not 0 <= look["dim"] <= 85 or
+                type(look["blur"]) is not int or not 0 <= look["blur"] <= 24):
+            raise ValueError("Invalid room appearance")
+        clean_profiles[tv_id] = look
     return {"theme": theme, "accent": accent, "haptics": haptics,
-            "favorites": clean_favorites, "scenes": clean_scenes}
+            "favorites": clean_favorites, "scenes": clean_scenes, "profiles": clean_profiles}
 
 
 def save_preferences(data, only_if_missing=False):
@@ -951,6 +976,133 @@ def update_preferences():
         return jsonify(preferences=saved)
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
+
+
+@app.get("/api/background/<tv_id>")
+def get_background(tv_id):
+    if not authenticated():
+        return jsonify(error="Unauthorized"), 401
+    if tv_id not in read_tvs():
+        return jsonify(error="Unknown TV"), 404
+    image = BACKGROUNDS / f"{tv_id}.jpg"
+    if not image.is_file():
+        return jsonify(error="No background uploaded"), 404
+    return send_file(image, mimetype="image/jpeg", max_age=0)
+
+
+@app.post("/api/background/<tv_id>")
+def upload_background(tv_id):
+    if not valid_post():
+        return jsonify(error="Unauthorized or invalid session"), 403
+    if tv_id not in read_tvs():
+        return jsonify(error="Unknown TV"), 404
+    upload = request.files.get("image")
+    if not upload or upload.mimetype not in ("image/jpeg", "image/png", "image/webp"):
+        return jsonify(error="Choose a JPEG, PNG or WebP image"), 400
+    raw = upload.read(5 * 1024 * 1024 + 1)
+    if not raw or len(raw) > 5 * 1024 * 1024:
+        return jsonify(error="Image must be under 5 MB"), 400
+    BACKGROUNDS.mkdir(mode=0o700, exist_ok=True)
+    source = BACKGROUNDS / f"{tv_id}.upload"
+    target = BACKGROUNDS / f"{tv_id}.jpg"
+    output = BACKGROUNDS / f"{tv_id}.new.jpg"
+    try:
+        source.write_bytes(raw)
+        subprocess.run(["ffmpeg", "-loglevel", "error", "-nostdin", "-y", "-i", str(source),
+                        "-vf", "scale='min(1600,iw)':-2", "-frames:v", "1", "-q:v", "5", str(output)],
+                       capture_output=True, check=True, timeout=20)
+        if not output.is_file() or output.stat().st_size > 3 * 1024 * 1024:
+            raise ValueError("Image could not be optimized")
+        os.replace(output, target)
+        return jsonify(ok=True)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return jsonify(error="Could not process image"), 400
+    finally:
+        source.unlink(missing_ok=True)
+        output.unlink(missing_ok=True)
+
+
+@app.post("/api/backup/export")
+def export_backup():
+    if not valid_post():
+        return jsonify(error="Unauthorized or invalid session"), 403
+    password = (request.get_json(silent=True) or {}).get("password", "")
+    try:
+        bundle = make_bundle(BASE, read_tvs(), read_preferences(), JACK.read())
+        encrypted = seal(bundle, password)
+        return send_file(io.BytesIO(encrypted), mimetype="application/octet-stream",
+                         as_attachment=True, download_name="ctrl-freak.cfbackup")
+    except (OSError, ValueError, TypeError):
+        return jsonify(error="Could not create backup; check password and TV credentials"), 400
+
+
+@app.post("/api/backup/restore")
+def restore_backup():
+    if not valid_post():
+        return jsonify(error="Unauthorized or invalid session"), 403
+    upload = request.files.get("backup")
+    password = request.form.get("password", "")
+    if not upload:
+        return jsonify(error="Choose a backup file"), 400
+    try:
+        bundle = unseal(upload.read(7_000_001), password)
+        incoming = bundle.get("tvs")
+        if not isinstance(incoming, dict) or not 1 <= len(incoming) <= 30:
+            raise ValueError("Invalid TV list")
+        for tv_id, config in incoming.items():
+            if (not isinstance(tv_id, str) or not SCENE_ID_RE.fullmatch(tv_id) or
+                    not isinstance(config, dict) or config.get("type", "android") not in ("android", "webos") or
+                    not isinstance(config.get("name"), str) or not 1 <= len(config["name"]) <= 60):
+                raise ValueError("Invalid TV configuration")
+            ipaddress.ip_address(config.get("host", ""))
+            if config.get("type") == "webos" and not isinstance(config.get("client_key"), str):
+                raise ValueError("Invalid LG pairing")
+        names = credential_names(incoming)
+        encoded = bundle.get("credentials", {})
+        credentials = {}
+        for name in names:
+            raw = base64.b64decode(encoded[name], validate=True)
+            if not raw or len(raw) > 100_000 or b"-----BEGIN " not in raw:
+                raise ValueError("Invalid pairing credential")
+            credentials[name] = raw
+        merged = {**read_tvs(), **incoming}
+        preferences = validate_preferences(bundle.get("preferences"), merged)
+        backgrounds = {}
+        for tv_id, encoded_image in bundle.get("backgrounds", {}).items():
+            if tv_id not in incoming:
+                raise ValueError("Unknown background TV")
+            raw = base64.b64decode(encoded_image, validate=True)
+            if not raw.startswith(b"\xff\xd8\xff") or len(raw) > 3_000_000:
+                raise ValueError("Invalid room image")
+            backgrounds[tv_id] = raw
+        saved_jack = bundle.get("jack", {})
+        feeds, tracked = saved_jack.get("feeds", []), saved_jack.get("tracked", [])
+        if (not isinstance(feeds, list) or len(feeds) > 30 or
+                any(not isinstance(url, str) or len(url) > 500 or not url.startswith(("http://", "https://")) for url in feeds) or
+                not isinstance(tracked, list) or len(tracked) > 100 or
+                any(not isinstance(item, dict) or not isinstance(item.get("title"), str) or
+                    not 2 <= len(item["title"]) <= 100 or item.get("category") not in ("movie", "series", "music", "other") for item in tracked)):
+            raise ValueError("Invalid Jack sources")
+        for name, raw in credentials.items():
+            path = BASE / name
+            path.write_bytes(raw)
+            os.chmod(path, 0o600)
+        BACKGROUNDS.mkdir(mode=0o700, exist_ok=True)
+        for tv_id, raw in backgrounds.items():
+            (BACKGROUNDS / f"{tv_id}.jpg").write_bytes(raw)
+        temp = CONFIG.with_name(CONFIG.name + ".new")
+        temp.write_text(json.dumps(merged, indent=2))
+        os.chmod(temp, 0o600)
+        os.replace(temp, CONFIG)
+        save_preferences(preferences)
+        state = JACK.read()
+        state["feeds"] = list(dict.fromkeys(state["feeds"] + feeds))[:30]
+        state["tracked"] = (state["tracked"] + [item for item in tracked if item not in state["tracked"]])[:100]
+        JACK.save(state)
+        return jsonify(ok=True, tvs=len(incoming), feeds=len(feeds), tracked=len(tracked))
+    except (OSError, ValueError, TypeError, KeyError, OverflowError) as exc:
+        app.logger.warning("Backup restore rejected: %s", type(exc).__name__)
+        return jsonify(error="Backup could not be restored. Check the file and password."), 400
 
 
 @app.post("/api/scenes/run")
