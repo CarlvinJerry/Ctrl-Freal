@@ -16,6 +16,10 @@ let prefDraft = null;
 let prefWriteQueue = Promise.resolve();
 let jackCandidate = null;
 let jackTracked = [];
+let jackJobs = [];
+let jackCompletedHistory = [];
+let jackResultsRaw = [];
+let jackSearchSerial = 0;
 const specialApps = {magicmirror:{name:"MagicMirror", package:"magicmirror"}};
 
 const $ = id => document.getElementById(id);
@@ -338,11 +342,52 @@ function jackReview(candidate) {
   $("jackDialogTitle").textContent = candidate.title;
   $("jackDialogSource").textContent = candidate.source === "archive" ? "Internet Archive catalog" : candidate.source === "feed" ? "Saved torrent feed" : "Your magnet link";
   $("jackDownloadQuality").value = ["480p","720p","1080p","2160p"].includes(candidate.quality) ? candidate.quality : "any";
-  $("jackDownloadType").value = /S\d{1,2}E\d{1,2}/i.test(candidate.title) ? "series" : "movie";
+  $("jackDownloadType").value = candidate.category || (/S\d{1,2}E\d{1,2}/i.test(candidate.title) ? "series" : "movie");
   $("jackDialog").showModal();
 }
 
+function jackCompleted(item) {
+  const ref = item.id || item.url;
+  return [...jackJobs.filter(job => job.imported), ...jackCompletedHistory].find(job =>
+    (job.source_ref && ref ? job.source_ref === ref : job.title.toLowerCase() === item.title.toLowerCase()));
+}
+
+function jackRenderResults() {
+  const type = $("jackType").value;
+  const order = $("jackOrder").value;
+  const results = jackResultsRaw.filter(item => type === "all" || item.category === type);
+  results.sort((a, b) => {
+    const completedA = Boolean(jackCompleted(a));
+    const completedB = Boolean(jackCompleted(b));
+    if (order === "completed" && completedA !== completedB) return completedA ? -1 : 1;
+    const englishA = a.language === "english";
+    const englishB = b.language === "english";
+    if (englishA !== englishB) return englishA ? -1 : 1;
+    if (order === "title") return a.title.localeCompare(b.title);
+    if (order === "seeders" || order === "english") return (b.seeders || 0) - (a.seeders || 0);
+    return (b.date || "").localeCompare(a.date || "");
+  });
+  $("jackResults").replaceChildren();
+  for (const item of results) {
+    const tracked = jackTracked.some(t => item.title.toLowerCase().includes(t.title.toLowerCase()));
+    const completed = jackCompleted(item);
+    const detail = `${completed ? "Downloaded · " : ""}${tracked ? "★ Tracked · " : ""}${item.source === "archive" ? "Archive" : "Feed"} · ${item.category || "other"} · ${item.quality} · ${item.language === "english" ? "English" : item.language === "other" ? "Other language" : "Language unlisted"}${item.seeders !== null ? " · " + item.seeders + " seeders" : ""}${item.date ? " · " + item.date : ""}`;
+    const card = jackCard(item.title, detail);
+    if (completed) {
+      card.classList.add("downloaded");
+      if (jackJobs.some(job => job.imported && (job.source_ref || job.title) === (item.id || item.url || item.title))) {
+        card.append(jackButton("View download", () => $("jackJobs").scrollIntoView({behavior:"smooth",block:"start"})));
+      }
+    } else {
+      card.append(jackButton("Review", () => jackReview(item)));
+    }
+    $("jackResults").append(card);
+  }
+  $("jackMessage").textContent = `${results.length} results shown`;
+}
+
 async function jackSearch() {
+  const serial = ++jackSearchSerial;
   const query = $("jackQuery").value.trim();
   const params = new URLSearchParams({q:query,quality:$("jackQuality").value,source:$("jackSource").value});
   $("jackMessage").textContent = "Searching sources…";
@@ -351,13 +396,10 @@ async function jackSearch() {
     const response = await fetch(`/api/jack/search?${params}`, {cache:"no-store"});
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Search unavailable");
-    for (const item of data.results) {
-      const tracked = jackTracked.some(t => item.title.toLowerCase().includes(t.title.toLowerCase()));
-      const card = jackCard(item.title, `${tracked ? "★ Tracked · " : ""}${item.source === "archive" ? "Archive" : "Feed"} · ${item.quality}${item.seeders !== null ? " · " + item.seeders + " seeders" : ""}${item.date ? " · " + item.date : ""}`);
-      card.append(jackButton("Review", () => jackReview(item)));
-      $("jackResults").append(card);
-    }
-    $("jackMessage").textContent = `${data.results.length} results${data.errors.length ? " · " + data.errors.join("; ") : ""}`;
+    if (serial !== jackSearchSerial) return;
+    jackResultsRaw = data.results;
+    jackRenderResults();
+    if (data.errors.length) $("jackMessage").textContent += " · " + data.errors.join("; ");
   } catch (error) { $("jackMessage").textContent = error.message; }
 }
 
@@ -367,6 +409,9 @@ async function jackRefresh() {
     if (!response.ok) return;
     const data = await response.json();
     jackTracked = data.tracked;
+    jackJobs = data.jobs;
+    jackCompletedHistory = data.completed || [];
+    if (jackResultsRaw.length) jackRenderResults();
     $("jackClientStatus").textContent = data.client_available ? "Torrent client ready" : "Torrent client unavailable on the Pi";
     $("jackTracked").replaceChildren();
     data.tracked.forEach(item => {
@@ -432,6 +477,10 @@ async function jackRefresh() {
 function installJack() {
   $("jackSearchButton").onclick = jackSearch;
   $("jackQuery").onkeydown = event => { if (event.key === "Enter") jackSearch(); };
+  $("jackSource").onchange = jackSearch;
+  $("jackQuality").onchange = jackSearch;
+  $("jackType").onchange = jackRenderResults;
+  $("jackOrder").onchange = jackRenderResults;
   $("jackFeedButton").onclick = async () => {
     try { await jackPost("/api/jack/feed", {url:$("jackFeedUrl").value.trim()}); $("jackFeedUrl").value = ""; await jackRefresh(); toast("Feed added"); }
     catch (error) { toast(error.message); }

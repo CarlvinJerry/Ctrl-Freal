@@ -979,7 +979,8 @@ def jack_status():
     except (OSError, ValueError, RuntimeError, KeyError, TimeoutError):
         jobs = []
         available = False
-    return jsonify(feeds=state["feeds"], tracked=state["tracked"], matches=state["matches"], jobs=jobs,
+    return jsonify(feeds=state["feeds"], tracked=state["tracked"], matches=state["matches"],
+                   completed=state["completed"], jobs=jobs,
                    client_available=available)
 
 

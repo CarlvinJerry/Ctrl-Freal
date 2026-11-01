@@ -211,7 +211,7 @@ body #apps #refreshApps { min-height:44px; padding:9px 16px; margin:0 0 15px; }
 #sceneList .sceneItem button { min-height:38px; padding:7px 12px; flex:none; }
 #settings :is(#saveScene,#createGuest,#revokeGuest,#toggleScreensaver) { min-height:44px; padding:10px 16px; margin:5px 0 9px; }
 #guestPin { font-size:22px; font-weight:700; letter-spacing:.12em; user-select:all; }
-.jackSection { margin-top: 2.25rem; padding-top: 1.25rem; border-top: 1px solid var(--border, rgba(255,255,255,.12)); }
+.jackSection { padding-top: 1.25rem; }
 .jackSection .sectionHeading { margin-bottom: .5rem; }
 .jackSearch, .jackFilters, .jackActions { display: flex; gap: .55rem; margin: .7rem 0; align-items: stretch; }
 .jackSearch input { min-width: 0; flex: 1; }
@@ -227,3 +227,14 @@ body #apps #refreshApps { min-height:44px; padding:9px 16px; margin:0 0 15px; }
 #jackDialog label { display: grid; gap: .35rem; margin: .8rem 0; }
 .jackActions { justify-content: flex-end; margin-top: 1.2rem; }
 @media (max-width: 420px) { .jackSearch { flex-wrap: wrap; } .jackSearch input { flex-basis: 100%; } .jackSearch button { flex: 1; } }
+.bottomNav { grid-template-columns: repeat(5, minmax(0,1fr)); }
+.bottomNav button { padding-inline: 0; }
+#apps #appGrid { max-height: min(45dvh, 430px); overflow-y: auto; overscroll-behavior: contain; padding: .25rem; scrollbar-width: thin; }
+#apps #favoriteList { max-height: min(32dvh, 320px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+#jack .jackFilters { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
+#jack #jackResults { grid-template-columns:repeat(2,minmax(0,1fr)); max-height:min(58dvh,640px); overflow-y:auto; overscroll-behavior:contain; padding:.3rem; scrollbar-width:thin; align-content:start; }
+#jack #jackResults .jackCard { min-width:0; align-content:start; }
+#jack #jackResults .jackCard button { align-self:end; }
+#jack .jackCard.downloaded { opacity:.68; }
+#jack .jackCard.downloaded strong { text-decoration:line-through; text-decoration-thickness:2px; }
+@media (max-width:370px) { #jack #jackResults { grid-template-columns:1fr; } }

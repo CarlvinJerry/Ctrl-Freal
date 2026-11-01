@@ -2,6 +2,7 @@
 
 import json
 import hashlib
+import email.utils
 import os
 import re
 import shutil
@@ -36,6 +37,27 @@ def quality_of(title):
     return "unknown"
 
 
+def language_of(title, metadata=None):
+    label = metadata or ""
+    if isinstance(label, list):
+        label = " ".join(str(x) for x in label)
+    text = (str(label) + " " + title).casefold()
+    if re.search(r"\b(english|eng)\b|\[(en)\]", text) or str(label).casefold() in ("en", "en-us", "en-gb"):
+        return "english"
+    if re.search(r"\b(french|spanish|hindi|german|italian|japanese|korean|russian|arabic|portuguese)\b", text):
+        return "other"
+    return "unknown"
+
+
+def category_of(title, metadata=None):
+    text = (str(metadata or "") + " " + title).casefold()
+    if re.search(r"\bs\d{1,2}e\d{1,2}\b|\bseason\s+\d+\b|\b(tv|television|series)\b", text):
+        return "series"
+    if re.search(r"\b(music|audio|album)\b", text):
+        return "music"
+    return "movie"
+
+
 def _json_url(url):
     req = urllib.request.Request(url, headers={"User-Agent": "CtrlFreak/3.4"})
     with urllib.request.urlopen(req, timeout=8) as response:
@@ -66,10 +88,11 @@ class JackSparrow:
     def read(self):
         with LOCK:
             if not self.state_path.exists():
-                return {"feeds": [], "tracked": [], "jobs": {}, "matches": []}
+                return {"feeds": [], "tracked": [], "jobs": {}, "matches": [], "completed": []}
             data = json.loads(self.state_path.read_text())
             return {"feeds": data.get("feeds", []), "tracked": data.get("tracked", []),
-                    "jobs": data.get("jobs", {}), "matches": data.get("matches", [])}
+                    "jobs": data.get("jobs", {}), "matches": data.get("matches", []),
+                    "completed": data.get("completed", [])}
 
     def save(self, data):
         with LOCK:
@@ -103,10 +126,20 @@ class JackSparrow:
         results = []
         for item in items[:60]:
             title = item.findtext("title") or item.findtext("{*}title") or "Untitled"
+            language = ""
+            category = ""
+            published = ""
             links = []
             for node in item.iter():
-                if node.tag.rsplit("}", 1)[-1].lower() in ("link", "enclosure"):
+                tag = node.tag.rsplit("}", 1)[-1].lower()
+                if tag in ("link", "enclosure"):
                     links.extend([node.get("url", ""), node.get("href", ""), node.text or ""])
+                elif tag == "language":
+                    language = node.text or ""
+                elif tag == "category":
+                    category = node.text or node.get("term", "")
+                elif tag in ("pubdate", "published", "updated"):
+                    published = node.text or ""
             link = next((x.strip() for x in links if x and x.strip().startswith("magnet:?")), None)
             if link is None:
                 link = next((x.strip() for x in links if x and x.strip().startswith(("https://", "http://"))
@@ -120,21 +153,33 @@ class JackSparrow:
                         except ValueError:
                             pass
                 results.append({"title": title[:180], "source": "feed", "url": link,
-                                "quality": quality_of(title), "seeders": seeders})
+                                "quality": quality_of(title), "seeders": seeders,
+                                "language": language_of(title, language),
+                                "category": category_of(title, category),
+                                "date": self._date(published)})
         return results
+
+    @staticmethod
+    def _date(value):
+        try:
+            return email.utils.parsedate_to_datetime(value).date().isoformat()
+        except (TypeError, ValueError, IndexError):
+            return value[:10] if value.startswith("20") else ""
 
     def archive(self, query="", rows=30):
         term = re.sub(r"[^\w .-]", " ", query).strip()[:80]
         archive_query = '(collection:prelinger OR collection:feature_films) AND mediatype:movies'
         if term:
             archive_query += " AND title:(" + term + ")"
-        params = urllib.parse.urlencode({"q": archive_query, "fl[]": ["identifier", "title", "publicdate"],
+        params = urllib.parse.urlencode({"q": archive_query, "fl[]": ["identifier", "title", "publicdate", "language"],
                                          "sort[]": "publicdate desc", "rows": min(rows, 40), "output": "json"},
                                         doseq=True)
         docs = _json_url("https://archive.org/advancedsearch.php?" + params)["response"]["docs"]
         return [{"title": str(doc.get("title", doc["identifier"]))[:180],
                  "source": "archive", "id": doc["identifier"], "quality": "varies",
-                 "seeders": None, "date": doc.get("publicdate", "")[:10]} for doc in docs]
+                 "seeders": None, "date": doc.get("publicdate", "")[:10],
+                 "language": language_of(str(doc.get("title", "")), doc.get("language")),
+                 "category": "movie"} for doc in docs]
 
     def discover(self, query="", quality="any", source="all"):
         if quality not in QUALITY or source not in ("all", "archive", "feeds"):
@@ -157,7 +202,8 @@ class JackSparrow:
             results = [x for x in results if query.casefold() in x["title"].casefold()]
         if quality != "any":
             results = [x for x in results if x["quality"] in (quality, "varies", "unknown")]
-        results.sort(key=lambda x: (x.get("seeders") is not None, x.get("seeders") or 0), reverse=True)
+        results.sort(key=lambda x: (x.get("language") == "english",
+                                    x.get("seeders") is not None, x.get("seeders") or 0), reverse=True)
         return {"results": results[:100], "errors": errors}
 
     def add_feed(self, url):
@@ -298,7 +344,8 @@ class JackSparrow:
             state = self.read()
             state["jobs"][job_id] = {"title": title, "category": category, "quality": quality,
                                       "source": source, "imported": False,
-                                      "wanted_names": wanted_names, "selected": quality == "any"}
+                                      "wanted_names": wanted_names, "selected": False,
+                                      "source_ref": identifier if source == "archive" else url}
             self.save(state)
         return job_id
 
@@ -320,15 +367,19 @@ class JackSparrow:
             if not job:
                 continue
             if not job.get("selected") and torrent.get("files"):
-                wanted = []
-                unwanted = []
+                eligible = []
+                extensions = AUDIO if job["category"] == "music" else VIDEO
                 for index, entry in enumerate(torrent["files"]):
                     name = entry["name"]
-                    matches = name in job.get("wanted_names", []) or quality_of(name) == job["quality"]
-                    if matches and Path(name).suffix.lower() in (VIDEO | AUDIO):
-                        wanted.append(index)
-                    else:
-                        unwanted.append(index)
+                    matches = (job["quality"] == "any" or
+                               Path(name).name in {Path(x).name for x in job.get("wanted_names", [])} or
+                               quality_of(name) == job["quality"])
+                    if matches and Path(name).suffix.lower() in extensions:
+                        eligible.append(index)
+                english = [index for index in eligible if
+                           language_of(torrent["files"][index]["name"]) == "english"]
+                wanted = english or eligible
+                unwanted = [index for index in range(len(torrent["files"])) if index not in wanted]
                 if wanted:
                     self.rpc("torrent-set", {"ids": [torrent["id"]], "files-wanted": wanted,
                                              "files-unwanted": unwanted})
@@ -344,6 +395,13 @@ class JackSparrow:
                     self._import(torrent, job)
                     job["imported"] = True
                     job.pop("error", None)
+                    if not any(x.get("source_ref") == job.get("source_ref") and
+                               x.get("title") == job["title"] for x in state["completed"]):
+                        state["completed"].insert(0, {"title": job["title"],
+                                                      "category": job["category"],
+                                                      "source_ref": job.get("source_ref"),
+                                                      "completed_at": int(time.time())})
+                        state["completed"] = state["completed"][:300]
                 except (OSError, ValueError, RuntimeError) as exc:
                     job["error"] = str(exc)[:160]
                 self.save(state)
@@ -367,10 +425,14 @@ class JackSparrow:
             path = (source_root / entry["name"]).resolve()
             if not path.is_relative_to(source_root) or path.suffix.lower() not in extensions:
                 continue
-            if job.get("wanted_names") and entry["name"] not in job["wanted_names"]:
+            if job.get("wanted_names") and Path(entry["name"]).name not in {
+                    Path(x).name for x in job["wanted_names"]}:
                 continue
             if path.is_file() and path.stat().st_size >= 1_000_000:
                 files.append(path)
+        english_files = [path for path in files if language_of(path.name) == "english"]
+        if english_files:
+            files = english_files
         if not files:
             raise RuntimeError("No compatible media file found for Plex")
         title = clean_title(job["title"].replace(".", " "))
