@@ -4,7 +4,7 @@ Self-hosted remote for Android TV / Google TV and LG webOS. The Raspberry Pi run
 
 ## Version
 
-Current app version: **3.12.0**. `version.py` is the single source for the displayed version and bootstrap API. Use semantic versioning (`MAJOR.MINOR.PATCH`): increment major for incompatible releases, minor for backward-compatible features, and patch for fixes. Update `version.py` with each release.
+Current app version: **3.12.1**. `version.py` is the single source for the displayed version and bootstrap API. Use semantic versioning (`MAJOR.MINOR.PATCH`): increment major for incompatible releases, minor for backward-compatible features, and patch for fixes. Update `version.py` with each release.
 
 ## Add a TV
 
@@ -58,3 +58,5 @@ Paired TVs and credentials stay in `tvs.json` on the Pi. Every two minutes, Ctrl
 **v3.11.2:** Touchscreen pointer-leave events no longer erase power tap counts. A tap count badge and immediate action message make the gesture visible. One-tap power uses ADB when available so standby TVs can wake even while the paired remote service reconnects. Android TV shutdown and restart reconnect ADB before sending their commands.
 
 **v3.12.0:** LG webOS power uses the live webOS shutdown command and Wake-on-LAN for power-on. The Pi remembers the LG TV's network address while it is connected; LG's Mobile TV On / Turn On via Wi-Fi setting must be enabled. The MagicMirror Android viewer fits its own WebView to the TV viewport instead of assuming 1920×1080. The original MagicMirror server layout remains independent of the viewer.
+
+**v3.12.1:** The Pi's local MagicMirror Electron window reopens when the HDMI display changes resolution after the LG wakes. This keeps the original mirror layout responsive without changing its server CSS or the Android TV viewer. The TCL pairing was verified after it rejoined Wi-Fi; keep both Wi-Fi bands on the same LAN and reserve TV and Pi addresses in the router.

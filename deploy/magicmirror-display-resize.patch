@@ -1,0 +1,54 @@
+--- a/js/electron.js
++++ b/js/electron.js
+@@ -28,6 +28,35 @@
+  * be closed automatically when the JavaScript object is garbage collected.
+  */
+ let mainWindow;
++let windowDisplaySize;
++let displayResizeTimer;
++let displayWatcherInstalled = false;
++
++// Recreate only the local HDMI window when the TV changes its reported size.
++// The MagicMirror server and its responsive CSS keep running for other screens.
++const checkDisplaySize = () => {
++	if (!mainWindow || mainWindow.isDestroyed()) return;
++	const size = electron.screen.getPrimaryDisplay().workAreaSize;
++	if (size.width === windowDisplaySize.width && size.height === windowDisplaySize.height) return;
++	clearTimeout(displayResizeTimer);
++	displayResizeTimer = setTimeout(() => {
++		if (!mainWindow || mainWindow.isDestroyed()) return;
++		const stable = electron.screen.getPrimaryDisplay().workAreaSize;
++		if (stable.width !== windowDisplaySize.width || stable.height !== windowDisplaySize.height) {
++			Log.log(`HDMI size changed to ${stable.width}x${stable.height}; reopening local mirror window.`);
++			mainWindow.destroy();
++		}
++	}, 2500);
++};
++
++const installDisplayWatcher = () => {
++	if (displayWatcherInstalled) return;
++	displayWatcherInstalled = true;
++	electron.screen.on("display-metrics-changed", checkDisplaySize);
++	electron.screen.on("display-added", checkDisplaySize);
++	electron.screen.on("display-removed", checkDisplaySize);
++	setInterval(checkDisplaySize, 5000);
++};
+ 
+ /**
+  * Create and show the main browser window.
+@@ -44,6 +73,7 @@
+ 	} catch {
+ 		Log.warn("Could not get display size, using defaults ...");
+ 	}
++	windowDisplaySize = { width: electronSize.width, height: electronSize.height };
+ 
+ 	applyElectronSwitches(app.commandLine, config.electronSwitches);
+ 	const electronOptionsDefaults = {
+@@ -87,6 +117,7 @@
+ 
+ 	// Create the browser window.
+ 	mainWindow = new BrowserWindow(electronOptions);
++	installDisplayWatcher();
+ 
+ 	/*
+ 	 * and load the index.html of the app.
