@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from androidtvremote2 import AndroidTVRemote
+from lg_wake import neighbor_mac
 
 PAIRINGS = {}
 PAIRING_LOCK = threading.Lock()
@@ -237,6 +238,9 @@ def finish_pairing(base, config_path, loop, token, code=None):
         if item["state"] != "paired" or not item.get("client_key"):
             raise ValueError("Approve the request on the LG TV first")
         details = {"name": item["name"], "host": item["host"], "type": "webos", "client_key": item["client_key"]}
+        mac = neighbor_mac(item["host"])
+        if mac:
+            details["mac"] = mac
         asyncio.run_coroutine_threadsafe(item["client"].disconnect(), loop).result(timeout=5)
     save_tv(config_path, item["id"], details)
     with PAIRING_LOCK:

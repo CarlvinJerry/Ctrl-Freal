@@ -126,6 +126,7 @@ async function command(type, value) {
       return;
     }
 
+    if (response.ok && result.action === "power_wake") toast("LG wake signal sent. The TV may take a few seconds to connect.");
     if (!response.ok) {
   if (response.status === 501) {
     toast("This feature is not supported by the TV connection");
@@ -160,7 +161,7 @@ async function pairingPost(path, data) {
 function pairInstructions() {
   const lg = $("pairType").value === "webos";
   $("pairInstructions").textContent = lg
-    ? "LG LJ570U / webOS 3.5: turn on the TV and enable Settings → All Settings → Network → LG Connect Apps. Other LG models may call this Mobile TV access. Start pairing, then accept the TV's request with its physical remote. No code is needed."
+    ? "LG LJ570U / webOS 3.5: turn on the TV and enable Settings → All Settings → Network → LG Connect Apps. For power-on, also enable General → Mobile TV On → Turn On via Wi-Fi, if available. Start pairing, then accept the TV's request with its physical remote. No code is needed."
     : "Android TV / Google TV: after Start pairing, read the code shown on the TV screen and enter it here. The TV must have Android TV Remote Service enabled.";
 }
 
@@ -253,6 +254,10 @@ async function updateStatus() {
     if (!response.ok) throw new Error("Status unavailable");
     const data = await response.json();
     if (selectedTV !== tv) return;
+    $("lgWakeHint").hidden = tvTypes[tv] !== "webos";
+    if (tvTypes[tv] === "webos") $("lgWakeHint").textContent = data.wake_ready
+      ? "LG wake is ready. Enable General → Mobile TV On → Turn On via Wi-Fi on the TV for power-on."
+      : "To enable LG wake, turn the TV on once with its physical remote while the Pi is online. Then enable General → Mobile TV On → Turn On via Wi-Fi on the TV.";
 
     const dot = $("dot");
     dot.className = "dot " + (
@@ -1706,6 +1711,7 @@ $("themeSelect").onchange = () => {
     } catch (error) { console.debug("Preference sync paused", error); }
   }, 30000);
 
+  window.ctrlFreakReady = true;
   await updateStatus();
 statusTimer = setInterval(updateStatus, 3000);
 

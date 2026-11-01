@@ -24,6 +24,7 @@ from version import APP_VERSION
 from jack_sparrow import JackSparrow, INDEXERS
 from plex_extras import PlexExtras
 from backup_bundle import seal, unseal, credential_names, make_bundle
+from lg_wake import connection_mac, neighbor_mac, wake as wake_lg, webos_available
 import sqlite3
 
 BASE = Path(__file__).resolve().parent
@@ -36,7 +37,7 @@ SECRET = (BASE / ".session_secret").read_text().strip()
 PORT = int(os.getenv("REMOTE_PORT", "8091"))
 MAGICMIRROR_URL = os.getenv("REMOTE_MAGICMIRROR_URL", "http://192.168.1.21:8080/")
 VIEWER_PACKAGE = "com.ctrlfreak.magicmirror"
-VIEWER_VERSION_CODE = 10
+VIEWER_VERSION_CODE = 11
 VIEWER_DREAM = f"{VIEWER_PACKAGE}/.MirrorDreamService"
 VIEWER_APK = BASE / "static" / "magicmirror-viewer.apk"
 JACK = JackSparrow(BASE, media_root=os.getenv("JACK_MEDIA_ROOT", "/media/carlvinjerry/Views"))
@@ -400,6 +401,18 @@ def read_tvs():
         and (all(x in v for x in ("cert", "key")) if v.get("type", "android") == "android" else bool(v.get("client_key")))
     }
 
+
+def save_lg_mac(tv_id, mac):
+    with CONFIG_LOCK:
+        data = json.loads(CONFIG.read_text())
+        if tv_id not in data or data[tv_id].get("type") != "webos":
+            return
+        data[tv_id]["mac"] = mac
+        temp = CONFIG.with_name(CONFIG.name + ".new")
+        temp.write_text(json.dumps(data, indent=2))
+        os.chmod(temp, 0o600)
+        os.replace(temp, CONFIG)
+
 def safe_file(name):
     path = (BASE / name).resolve()
     if not path.is_relative_to(BASE):
@@ -602,11 +615,47 @@ class LGConnection:
         self.remote = client
         self.connected = True
         self.last_error = None
+        mac = await asyncio.to_thread(neighbor_mac, self.config["host"])
+        if not mac:
+            try:
+                mac = connection_mac(await client.get_connection_info())
+            except Exception:
+                pass
+        if mac and mac != self.config.get("mac"):
+            self.config["mac"] = mac
+            await asyncio.to_thread(save_lg_mac, self.id, mac)
 
     async def execute(self, command, value=None):
         async with self.lock:
             started = time.monotonic()
             try:
+                if command == "power_end":
+                    return
+                if command == "power_start" or (command == "key" and value == "POWER"):
+                    mac = self.config.get("mac") or await asyncio.to_thread(neighbor_mac, self.config["host"])
+                    if mac and not await asyncio.to_thread(webos_available, self.config["host"]):
+                        await asyncio.to_thread(wake_lg, mac, self.config["host"])
+                        self.connected = False
+                        self.remote = None
+                        self.last_command = "power_wake"
+                        self.last_success = time.time()
+                        return
+                    try:
+                        await self.connect()
+                    except Exception:
+                        if not mac:
+                            raise ValueError("Turn on the LG TV once to save its network address for wake-up")
+                        await asyncio.to_thread(wake_lg, mac, self.config["host"])
+                        self.connected = False
+                        self.remote = None
+                        self.last_command = "power_wake"
+                        self.last_success = time.time()
+                        return
+                    await self.remote.command("request", "system/turnOff")
+                    self.last_command = "power_off"
+                    self.last_success = time.time()
+                    self.last_latency_ms = round((time.monotonic() - started) * 1000)
+                    return
                 await self.connect()
                 if command == "app":
                     await self.remote.launch_app(value)
@@ -616,14 +665,8 @@ class LGConnection:
                     await self.remote.request("system.launcher/open", {"target": MAGICMIRROR_URL})
                 elif command == "text":
                     await self.remote.request("com.webos.service.ime/insertText", {"text": value})
-                elif command == "power_start":
-                    await self.remote.power_off()
-                elif command == "power_end":
-                    pass
                 elif command == "key":
-                    if value == "POWER":
-                        await self.remote.power_off()
-                    elif value == "VOLUME_UP":
+                    if value == "VOLUME_UP":
                         await self.remote.volume_up()
                     elif value == "VOLUME_DOWN":
                         await self.remote.volume_down()
@@ -1578,7 +1621,10 @@ def status(tv_id):
     if not can_control():
         return jsonify(error="Unauthorized"), 401
     try:
-        return jsonify(controller.get(tv_id).status())
+        data = controller.get(tv_id).status()
+        if read_tvs()[tv_id].get("type") == "webos":
+            data["wake_ready"] = bool(read_tvs()[tv_id].get("mac"))
+        return jsonify(data)
     except ValueError:
         return jsonify(error="Unknown TV"), 404
 @app.get("/api/device-info/<tv_id>")
@@ -1726,9 +1772,12 @@ def command():
 
     try:
         controller.send(tv_id, kind, value)
-        return jsonify(ok=True)
+        action = controller.get(tv_id).last_command if kind == "key" and value == "POWER" and read_tvs()[tv_id].get("type") == "webos" else None
+        return jsonify(ok=True, action=action)
     except NotImplementedError as exc:
         return jsonify(error=str(exc)), 501
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 409
     except Exception as exc:
         app.logger.exception("Remote command failed")
         return jsonify(

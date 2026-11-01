@@ -13,6 +13,10 @@
 <title>Ctrl Freak · Your TV, your rules</title>
 </head>
 <body>
+<div id="startupFallback" role="alert" style="display:none;position:fixed;inset:0;z-index:9999;background:#10141d;color:#f4f6fb;align-items:center;justify-content:center;padding:24px;text-align:center;font:16px system-ui,sans-serif">
+  <div><strong style="font-size:22px">Ctrl Freak couldn't finish loading</strong><p style="line-height:1.5;color:#b9c2d1">The Pi may be reconnecting. Reload the remote to try again.</p><button type="button" onclick="location.reload()" style="border:0;border-radius:14px;padding:13px 24px;background:#58d6be;color:#10141d;font:600 16px system-ui,sans-serif">Reload remote</button></div>
+</div>
+<script>setTimeout(function(){if(!window.ctrlFreakReady)document.getElementById('startupFallback').style.display='flex'},7000)</script>
 <main class="app">
 <header class="appHeader">
   <div class="headerTop">
@@ -191,6 +195,7 @@
   <div class="sectionHeading"><div><span class="eyebrow">MAKE IT YOURS</span><h2>Settings</h2></div></div>
   <h3>TV Controls</h3>
   <p class="hint">Power: one tap toggles standby and wake. Three taps shut down; five taps restart (Android TV with debugging). Hold for the TV power menu. Full shutdown may require the physical remote to turn on again.</p>
+  <p id="lgWakeHint" class="hint" hidden></p>
   <button id="openTvSettings">⚙ Open TV Settings</button>
 
   <h3>Appearance & Preferences</h3>

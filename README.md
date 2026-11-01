@@ -4,14 +4,14 @@ Self-hosted remote for Android TV / Google TV and LG webOS. The Raspberry Pi run
 
 ## Version
 
-Current app version: **3.11.2**. `version.py` is the single source for the displayed version and bootstrap API. Use semantic versioning (`MAJOR.MINOR.PATCH`): increment major for incompatible releases, minor for backward-compatible features, and patch for fixes. Update `version.py` with each release.
+Current app version: **3.12.0**. `version.py` is the single source for the displayed version and bootstrap API. Use semantic versioning (`MAJOR.MINOR.PATCH`): increment major for incompatible releases, minor for backward-compatible features, and patch for fixes. Update `version.py` with each release.
 
 ## Add a TV
 
 Open **Add TV** beside the TV selector. **Scan for TVs** searches from the Pi for Android TV Remote v2 and LG webOS devices. If discovery misses a TV, choose its type and enter its private IPv4 address manually. Turn the TV on before pairing.
 
 - **Android TV / Google TV:** The TV must have Android TV Remote Service. Start pairing, enter the code shown on the TV, then finish. ADB is only needed for optional diagnostics and installed-app discovery.
-- **LG webOS:** Enable the TV's mobile-app connection setting (the wording varies by model). Start pairing and accept the request on the TV using its physical remote. No numeric code is used. WebOS power-on from standby may need Wake-on-LAN support and is not provided yet.
+- **LG webOS:** Enable the TV's mobile-app connection setting (the wording varies by model). Start pairing and accept the request on the TV using its physical remote. No numeric code is used. For wake from standby, also enable **Mobile TV On → Turn On via Wi-Fi** on the TV. Ctrl Freak saves the TV's network address when available and sends a wake signal while webOS is asleep.
 
 For the **LJ570U (webOS 3.5)**, look under **Settings → All Settings → Network → LG Connect Apps** before pairing. The pairing popup repeats these steps. LG lists this model family with a built-in web browser and mobile-app support; actual compatibility will be verified on the TV during deployment.
 
@@ -56,3 +56,5 @@ Paired TVs and credentials stay in `tvs.json` on the Pi. Every two minutes, Ctrl
 **v3.11.1:** Three-tap shutdown and five-tap restart run directly without confirmation prompts.
 
 **v3.11.2:** Touchscreen pointer-leave events no longer erase power tap counts. A tap count badge and immediate action message make the gesture visible. One-tap power uses ADB when available so standby TVs can wake even while the paired remote service reconnects. Android TV shutdown and restart reconnect ADB before sending their commands.
+
+**v3.12.0:** LG webOS power uses the live webOS shutdown command and Wake-on-LAN for power-on. The Pi remembers the LG TV's network address while it is connected; LG's Mobile TV On / Turn On via Wi-Fi setting must be enabled. The MagicMirror Android viewer fits its own WebView to the TV viewport instead of assuming 1920×1080. The original MagicMirror server layout remains independent of the viewer.
