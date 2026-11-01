@@ -152,6 +152,43 @@ class JackSparrowTest(unittest.TestCase):
                 jack.refresh_plex_notices()
             self.assertEqual(jack.read()["notices"], [])
 
+    def test_episode_matches_group_and_hide_after_queue_or_completion(self):
+        with tempfile.TemporaryDirectory() as temp:
+            jack = JackSparrow(temp)
+            state = jack.read()
+            state["tracked"] = [{"title": "Sample Show", "category": "series"}]
+            state["matches"] = [
+                {"key": "audio", "title": "Sample Show S01E03 Audio Description 1080p",
+                 "tracked_title": "Sample Show", "language": "english", "seeders": 50},
+                {"key": "normal", "title": "Sample Show S01E03 720p",
+                 "tracked_title": "Sample Show", "language": "english", "seeders": 10},
+                {"key": "next", "title": "Sample Show S01E04 720p",
+                 "tracked_title": "Sample Show", "language": "english", "seeders": 10}]
+            jack.save(state)
+            self.assertEqual([x["key"] for x in jack.active_matches()], ["normal", "next"])
+            state = jack.read()
+            state["jobs"] = {"1": {"title": "Sample Show S01E03 720p", "category": "series"}}
+            jack.save(state)
+            self.assertEqual([x["key"] for x in jack.active_matches()], ["next"])
+            state = jack.read()
+            state["jobs"] = {}
+            state["completed"] = [{"title": "Sample Show S01E03 720p", "category": "series"}]
+            jack.save(state)
+            self.assertEqual([x["key"] for x in jack.active_matches()], ["next"])
+
+    def test_episode_already_in_plex_is_not_a_new_match(self):
+        with tempfile.TemporaryDirectory() as temp:
+            jack = JackSparrow(temp)
+            state = jack.read()
+            state["matches"] = [{"key": "existing", "title": "Sample Show S01E02 1080p",
+                                 "tracked_title": "Sample Show"},
+                                {"key": "new", "title": "Sample Show S01E03 1080p",
+                                 "tracked_title": "Sample Show"}]
+            jack.save(state)
+            jack.plex_library = lambda: {"shows": [{"title": "Sample Show", "episodes": {(1, 2)}}],
+                                         "movies": []}
+            self.assertEqual([x["key"] for x in jack.active_matches()], ["new"])
+
     def test_completed_history_survives_queue_removal(self):
         with tempfile.TemporaryDirectory() as temp:
             jack = JackSparrow(temp)

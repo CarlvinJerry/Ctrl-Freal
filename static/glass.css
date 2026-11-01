@@ -237,4 +237,13 @@ body #apps #refreshApps { min-height:44px; padding:9px 16px; margin:0 0 15px; }
 #jack #jackResults .jackCard button { align-self:end; }
 #jack .jackCard.downloaded { opacity:.68; }
 #jack .jackCard.downloaded strong { text-decoration:line-through; text-decoration-thickness:2px; }
+#jack #jackMatches { max-height:min(48dvh,500px); overflow-y:auto; overscroll-behavior:contain; padding:.2rem; scrollbar-width:thin; align-content:start; }
+#jack #jackTracked { max-height:min(25dvh,220px); overflow-y:auto; overscroll-behavior:contain; padding:.2rem; scrollbar-width:thin; }
+#jack #jackMatches .jackMatchCard { gap:.2rem; padding:.65rem .8rem; }
+#jack #jackMatches .jackMatchCard strong { font-size:.9rem; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+#jack #jackMatches .jackActions { margin-top:.25rem; gap:.4rem; }
+#jack #jackMatches button { min-height:34px; padding:.35rem .65rem; font-size:.8rem; }
+#jackArchive { margin:.75rem 0 1.4rem; border:1px solid var(--border); border-radius:1rem; padding:.7rem .85rem; }
+#jackArchive summary { cursor:pointer; font-weight:650; }
+#jackArchivedJobs { max-height:min(48dvh,500px); overflow-y:auto; overscroll-behavior:contain; padding:.2rem; scrollbar-width:thin; }
 @media (max-width:370px) { #jack #jackResults { grid-template-columns:1fr; } }

@@ -242,22 +242,33 @@ def installed_apps(tv_id, refresh=False):
         cached = APP_CACHE.get(tv_id)
         if cached and not refresh and time.monotonic() - cached[0] < 300:
             return cached[1]
-    output = adb_command(tvs[tv_id]["host"], "shell", "pm", "list", "packages", timeout=8)
+    host = tvs[tv_id]["host"]
+    output = adb_command(host, "shell", "pm", "list", "packages", timeout=8)
     packages = {
         line[8:].strip() for line in output.splitlines()
         if line.startswith("package:") and PACKAGE_RE.fullmatch(line[8:].strip())
     }
+    launchers = {}
+    for category in ("android.intent.category.LEANBACK_LAUNCHER", "android.intent.category.LAUNCHER"):
+        output = adb_command(host, "shell", "cmd", "package", "query-activities",
+                             "-a", "android.intent.action.MAIN", "-c", category,
+                             "--brief", timeout=10)
+        for line in output.splitlines():
+            component = line.strip()
+            if "/" not in component:
+                continue
+            package, activity = component.split("/", 1)
+            if package in packages and PACKAGE_RE.fullmatch(package) and activity and " " not in activity:
+                launchers.setdefault(package, component)
     known = {package: (id_, name) for id_, (name, package) in APPS.items()}
     discovered = {}
-    for package in sorted(packages):
+    for package in sorted(launchers):
         if package in known:
             id_, name = known[package]
-        elif package.startswith(("com.android.", "com.google.android.", "android.")):
-            continue
         else:
             id_ = package
             name = package.rsplit(".", 1)[-1].replace("_", " ").title()
-        discovered[id_] = {"name": name, "package": package}
+        discovered[id_] = {"name": name, "package": package, "component": launchers[package]}
     with APP_CACHE_LOCK:
         APP_CACHE[tv_id] = (time.monotonic(), discovered)
     return discovered
@@ -389,15 +400,8 @@ class TVConnection:
                         self.remote.send_key_command("text:" + value)
 
                     elif command == "app":
-                        method = getattr(
-                            self.remote,
-                            "send_launch_app_command", None
-                        )
-                        if not callable(method):
-                            raise NotImplementedError(
-                                "Direct app launching is unavailable"
-                            )
-                        method(value)
+                        await asyncio.to_thread(adb_command, self.config["host"],
+                                                "shell", "am", "start", "-n", value, timeout=8)
 
                     elif command == "volume":
                         await asyncio.to_thread(adb_command, self.config["host"],
@@ -882,7 +886,7 @@ def run_scene():
             return jsonify(error="Could not check the scene app"), 503
         if app_id not in available:
             return jsonify(error="Scene app is not installed on this TV"), 400
-        app_id = available[app_id]["package"]
+        app_id = available[app_id].get("component") if read_tvs()[tv_id].get("type") != "webos" else available[app_id]["package"]
     try:
         connection = controller.get(tv_id)
         if connection.status()["power"] is False:
@@ -980,7 +984,7 @@ def jack_status():
     except (OSError, ValueError, RuntimeError, KeyError, TimeoutError):
         jobs = []
         available = False
-    return jsonify(feeds=state["feeds"], tracked=state["tracked"], matches=state["matches"],
+    return jsonify(feeds=state["feeds"], tracked=state["tracked"], matches=JACK.active_matches(),
                    notices=state["notices"], indexers=INDEXERS,
                    completed=state["completed"], jobs=jobs,
                    client_available=available)
@@ -1312,7 +1316,7 @@ def command():
             return jsonify(error="Installed apps unavailable"), 503
         if value not in available:
             return jsonify(error="Unknown app"), 400
-        value = available[value]["package"]
+        value = available[value].get("component") if read_tvs()[tv_id].get("type") != "webos" else available[value]["package"]
 
     else:
         return jsonify(error="Unknown command type"), 400

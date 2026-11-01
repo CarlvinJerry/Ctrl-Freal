@@ -72,6 +72,11 @@ def category_of(title, metadata=None):
     return "movie"
 
 
+def episode_key(title):
+    match = re.search(r"(?i)\bS(\d{1,2})[ ._-]*E(\d{1,2})\b", title)
+    return f"S{int(match[1]):02d}E{int(match[2]):02d}" if match else ""
+
+
 def _json_url(url):
     req = urllib.request.Request(url, headers={"User-Agent": "CtrlFreak/3.4"})
     with urllib.request.urlopen(req, timeout=8) as response:
@@ -437,6 +442,8 @@ class JackSparrow:
                 for tracked in state["tracked"]:
                     if tracked["title"].casefold() not in item["title"].casefold():
                         continue
+                    if self._match_occupied({**item, "tracked_title": tracked["title"]}, state):
+                        continue
                     identity = item.get("url") or item.get("id") or item["title"]
                     key = hashlib.sha256((tracked["title"] + "|" + identity).encode()).hexdigest()[:24]
                     if key not in known and key not in state["dismissed"]:
@@ -445,8 +452,72 @@ class JackSparrow:
                                                     "found_at": int(time.time()), "seen": False})
                         known.add(key)
             state["matches"] = state["matches"][:50]
+            state["matches"] = [x for x in state["matches"] if not self._match_occupied(x, state)]
             self.save(state)
             return state["matches"]
+
+    @staticmethod
+    def _occupied_episodes(state):
+        names = [x.get("title", "") for x in state["completed"]]
+        names.extend(x.get("title", "") for x in state["jobs"].values() if not x.get("deleted"))
+        occupied = set()
+        for name in names:
+            episode = episode_key(name)
+            if episode:
+                occupied.add((re.split(r"(?i)\bS\d{1,2}[ ._-]*E\d{1,2}\b", name, maxsplit=1)[0]
+                              .strip(" ._-").casefold(), episode))
+        return occupied
+
+    def _match_occupied(self, match, state):
+        episode = episode_key(match["title"])
+        if episode:
+            show = match["tracked_title"].casefold()
+            return any(show in existing_show for existing_show, existing_episode in self._occupied_episodes(state)
+                       if existing_episode == episode)
+        tracked = match["tracked_title"].casefold()
+        if any(x.get("category") == "movie" and
+               re.match(r"^" + re.escape(tracked) + r"(?:\b|$)",
+                        x.get("title", "").casefold().lstrip(" -._"))
+               for x in state["completed"]):
+            return True
+        return any(x.get("source_ref") == (match.get("id") or match.get("url"))
+                   for x in state["completed"]) or any(
+                       x.get("source_ref") == (match.get("id") or match.get("url"))
+                       for x in state["jobs"].values() if not x.get("deleted"))
+
+    @staticmethod
+    def _match_in_plex(match, library):
+        episode = episode_key(match["title"])
+        tracked = match["tracked_title"].casefold()
+        if episode:
+            season = int(episode[1:3])
+            number = int(episode[4:6])
+            return any(show["title"].casefold() == tracked and
+                       (season, number) in show["episodes"] for show in library["shows"])
+        return any(movie["title"].casefold() == tracked for movie in library["movies"])
+
+    def active_matches(self):
+        state = self.read()
+        try:
+            library = self.plex_library()
+        except (OSError, sqlite3.Error):
+            library = {"shows": [], "movies": []}
+        results = []
+        grouped = set()
+        def rank(item):
+            return ("audio description" not in item["title"].casefold(),
+                    item.get("language") == "english", item.get("seeders") or 0,
+                    {"2160p": 4, "1080p": 3, "720p": 2, "480p": 1}.get(item.get("quality"), 0))
+        for item in sorted(state["matches"], key=rank, reverse=True):
+            if item.get("seen") or self._match_occupied(item, state) or self._match_in_plex(item, library):
+                continue
+            episode = episode_key(item["title"])
+            group = (item["tracked_title"].casefold(), episode) if episode else (item["tracked_title"].casefold(), item["key"])
+            if group in grouped:
+                continue
+            grouped.add(group)
+            results.append(item)
+        return results
 
     def mark_match_seen(self, key):
         with LOCK:

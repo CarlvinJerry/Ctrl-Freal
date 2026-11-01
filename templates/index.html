@@ -170,15 +170,15 @@
     <p class="hint">Tracked names are highlighted when a saved feed or Archive catalog has a match. Downloads always need your approval.</p>
     <div class="jackSearch"><input id="jackTrackTitle" placeholder="Series or movie title" maxlength="100"><select id="jackTrackType" aria-label="Media type"><option value="series">Series</option><option value="movie">Movie</option><option value="music">Music</option><option value="other">Other</option></select><button id="jackTrackButton" type="button">Track</button></div>
     <div id="jackTracked" class="jackList"></div>
-    <h3>Plex release notices</h3><p class="hint">New episodes from Plex series, plus possible sequels and quality upgrades for Plex movies you track. Dismissed notices stay cleared.</p><div id="jackNotices" class="jackList"></div><h3>Tracked matches</h3>
+    <h3>Plex release notices</h3><p class="hint">New episodes from Plex series, plus possible sequels and quality upgrades for Plex movies you track. Dismissed notices stay cleared.</p><div id="jackNotices" class="jackList"></div><h3>Tracked matches <span id="jackMatchCount" class="jackCount"></span></h3><p class="hint">One result per episode. Review a match to choose quality and library.</p>
     <div id="jackMatches" class="jackList"></div>
     <h3>Add a source</h3>
     <div class="jackSearch"><input id="jackFeedUrl" type="url" placeholder="Torrent RSS feed URL" aria-label="Torrent RSS feed URL"><button id="jackFeedButton" type="button">Add feed</button></div>
     <div id="jackFeeds" class="jackList"></div>
     <div class="jackSearch"><input id="jackMagnet" placeholder="Paste a magnet link" aria-label="Magnet link"><button id="jackMagnetButton" type="button">Review</button></div>
-    <h3>Downloads</h3>
+    <h3>Active downloads</h3>
     <p id="jackClientStatus" class="hint"></p>
-    <div id="jackJobs" class="jackList"></div>
+    <div id="jackJobs" class="jackList"></div><details id="jackArchive"><summary>Downloaded archive <span id="jackArchiveCount"></span></summary><div id="jackArchivedJobs" class="jackList"></div></details>
 </section>
 
 <section id="settings" class="panel">
