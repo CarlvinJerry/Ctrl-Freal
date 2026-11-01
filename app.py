@@ -18,7 +18,8 @@ from flask import (
 from waitress import serve
 from androidtvremote2 import AndroidTVRemote
 from version import APP_VERSION
-from jack_sparrow import JackSparrow
+from jack_sparrow import JackSparrow, INDEXERS
+import sqlite3
 
 BASE = Path(__file__).resolve().parent
 CONFIG = BASE / "tvs.json"
@@ -980,8 +981,33 @@ def jack_status():
         jobs = []
         available = False
     return jsonify(feeds=state["feeds"], tracked=state["tracked"], matches=state["matches"],
+                   notices=state["notices"], indexers=INDEXERS,
                    completed=state["completed"], jobs=jobs,
                    client_available=available)
+
+
+@app.post("/api/jack/notice/dismiss")
+def jack_notice_dismiss():
+    if not valid_post():
+        return jsonify(error="Unauthorized or invalid session"), 403
+    try:
+        JACK.dismiss_notice((request.get_json(silent=True) or {}).get("key", ""))
+        return jsonify(ok=True)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+
+
+@app.post("/api/jack/movie/delete")
+def jack_movie_delete():
+    if not valid_post():
+        return jsonify(error="Unauthorized or invalid session"), 403
+    try:
+        count = JACK.delete_imported_movie((request.get_json(silent=True) or {}).get("source_ref", ""))
+        return jsonify(ok=True, files=count)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    except OSError:
+        return jsonify(error="Could not remove movie files"), 503
 
 
 @app.get("/api/jack/search")
@@ -1312,6 +1338,10 @@ def jack_import_loop():
             app.logger.debug("Jack Sparrow background check: %s", type(exc).__name__)
         if time.monotonic() >= next_search:
             jack_refresh_matches_safely()
+            try:
+                JACK.refresh_plex_notices()
+            except (OSError, RuntimeError, ValueError, KeyError, TimeoutError, sqlite3.Error) as exc:
+                app.logger.debug("Jack Sparrow Plex check: %s", type(exc).__name__)
             next_search = time.monotonic() + 600
         time.sleep(60)
 

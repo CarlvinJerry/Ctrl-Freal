@@ -340,7 +340,7 @@ function jackCard(title, detail) {
 function jackReview(candidate) {
   jackCandidate = candidate;
   $("jackDialogTitle").textContent = candidate.title;
-  $("jackDialogSource").textContent = candidate.source === "archive" ? "Internet Archive catalog" : candidate.source === "feed" ? "Saved torrent feed" : "Your magnet link";
+  $("jackDialogSource").textContent = candidate.source === "archive" ? "Internet Archive catalog" : candidate.source === "feed" ? "Saved torrent feed" : candidate.source === "indexer" ? candidate.indexer_name : "Your magnet link";
   $("jackDownloadQuality").value = ["480p","720p","1080p","2160p"].includes(candidate.quality) ? candidate.quality : "any";
   $("jackDownloadType").value = candidate.category || (/S\d{1,2}E\d{1,2}/i.test(candidate.title) ? "series" : "movie");
   $("jackDialog").showModal();
@@ -348,7 +348,7 @@ function jackReview(candidate) {
 
 function jackCompleted(item) {
   const ref = item.id || item.url;
-  return [...jackJobs.filter(job => job.imported), ...jackCompletedHistory].find(job =>
+  return [...jackJobs.filter(job => job.imported && !job.deleted), ...jackCompletedHistory].find(job =>
     (job.source_ref && ref ? job.source_ref === ref : job.title.toLowerCase() === item.title.toLowerCase()));
 }
 
@@ -371,7 +371,7 @@ function jackRenderResults() {
   for (const item of results) {
     const tracked = jackTracked.some(t => item.title.toLowerCase().includes(t.title.toLowerCase()));
     const completed = jackCompleted(item);
-    const detail = `${completed ? "Downloaded · " : ""}${tracked ? "★ Tracked · " : ""}${item.source === "archive" ? "Archive" : "Feed"} · ${item.category || "other"} · ${item.quality} · ${item.language === "english" ? "English" : item.language === "other" ? "Other language" : "Language unlisted"}${item.seeders !== null ? " · " + item.seeders + " seeders" : ""}${item.date ? " · " + item.date : ""}`;
+    const detail = `${completed ? "Downloaded · " : ""}${tracked ? "★ Tracked · " : ""}${item.indexer_name || (item.source === "archive" ? "Archive" : "Feed")} · ${item.category || "other"} · ${item.quality} · ${item.language === "english" ? "English" : item.language === "other" ? "Other language" : "Language unlisted"}${item.seeders !== null ? " · " + item.seeders + " seeders" : ""}${item.date ? " · " + item.date : ""}`;
     const card = jackCard(item.title, detail);
     if (completed) {
       card.classList.add("downloaded");
@@ -411,6 +411,11 @@ async function jackRefresh() {
     jackTracked = data.tracked;
     jackJobs = data.jobs;
     jackCompletedHistory = data.completed || [];
+    const source = $("jackSource");
+    if (!source.dataset.indexersLoaded) {
+      Object.entries(data.indexers || {}).forEach(([id, name]) => source.add(new Option(name, `indexer:${id}`)));
+      source.dataset.indexersLoaded = "1";
+    }
     if (jackResultsRaw.length) jackRenderResults();
     $("jackClientStatus").textContent = data.client_available ? "Torrent client ready" : "Torrent client unavailable on the Pi";
     $("jackTracked").replaceChildren();
@@ -423,6 +428,16 @@ async function jackRefresh() {
       $("jackTracked").append(card);
     });
     $("jackMatches").replaceChildren();
+    $("jackNotices").replaceChildren();
+    (data.notices || []).forEach(item => {
+      const card = jackCard(item.title, item.detail);
+      const actions = document.createElement("div");
+      actions.className = "jackActions";
+      actions.append(jackButton("Search", () => { $("jackQuery").value = item.query; jackSearch(); $("jackResults").scrollIntoView({behavior:"smooth"}); }),
+        jackButton("Dismiss", async () => { try { await jackPost("/api/jack/notice/dismiss", {key:item.key}); await jackRefresh(); } catch (error) { toast(error.message); } }));
+      card.append(actions);
+      $("jackNotices").append(card);
+    });
     data.matches.filter(item => !item.seen).forEach(item => {
       const card = jackCard(item.title, `New match for ${item.tracked_title} · ${item.quality}`);
       const actions = document.createElement("div");
@@ -463,6 +478,13 @@ async function jackRefresh() {
       }
       if (!done) actions.append(jackButton(job.status === 0 ? "Resume" : "Pause", () => manage(job.status === 0 ? "resume" : "pause")));
       actions.append(jackButton("Remove", () => manage("remove")));
+      if (done && job.category === "movie" && !job.deleted && job.imported_paths?.length) {
+        actions.append(jackButton("Delete movie", async () => {
+          if (!confirm(`Delete ${job.title} from the Plex movie library? This removes ${job.imported_paths.length} file(s).`)) return;
+          try { await jackPost("/api/jack/movie/delete", {source_ref:job.source_ref}); await jackRefresh(); toast("Movie removed from Plex library"); }
+          catch (error) { toast(error.message); }
+        }));
+      }
       card.append(actions);
       $("jackJobs").append(card);
       const noticeKey = `jackCompleted:${job.id}`;
@@ -470,6 +492,16 @@ async function jackRefresh() {
         localStorage.setItem(noticeKey, "1");
         toast(inPlex ? `${job.title} finished; Plex will scan it` : `${job.title} is saved; add a Plex library`);
       }
+    });
+    jackCompletedHistory.filter(item => item.category === "movie" && item.imported_paths?.length &&
+      !data.jobs.some(job => job.source_ref === item.source_ref)).forEach(item => {
+      const card = jackCard(item.title, "Saved for Plex scan · movie");
+      card.append(jackButton("Delete movie", async () => {
+        if (!confirm(`Delete ${item.title} from the Plex movie library? This removes ${item.imported_paths.length} file(s).`)) return;
+        try { await jackPost("/api/jack/movie/delete", {source_ref:item.source_ref}); await jackRefresh(); toast("Movie removed from Plex library"); }
+        catch (error) { toast(error.message); }
+      }));
+      $("jackJobs").append(card);
     });
   } catch (error) { console.debug("Jack Sparrow status unavailable", error); }
 }

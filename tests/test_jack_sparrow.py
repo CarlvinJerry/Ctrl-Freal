@@ -82,6 +82,75 @@ class JackSparrowTest(unittest.TestCase):
             self.assertFalse(matches[0]["seen"])
             jack.mark_match_seen(matches[0]["key"])
             self.assertTrue(JackSparrow(temp).read()["matches"][0]["seen"])
+            self.assertIn(matches[0]["key"], JackSparrow(temp).read()["dismissed"])
+
+    def test_indexer_candidate_keeps_private_download_link(self):
+        with tempfile.TemporaryDirectory() as temp:
+            jack = JackSparrow(temp, media_root=Path(temp) / "media")
+            result = {"title": "Sample Movie 2026 English 1080p", "source": "indexer",
+                      "indexer": "thepiratebay", "indexer_name": "The Pirate Bay",
+                      "id": "candidate1", "_download": "magnet:?xt=urn:btih:abc",
+                      "quality": "1080p", "language": "english", "category": "movie", "seeders": 5}
+            with patch.object(jack, "indexer_search", return_value=[result]):
+                found = jack.discover("Sample Movie", source="indexer:thepiratebay")["results"]
+            self.assertNotIn("_download", found[0])
+            self.assertEqual(jack.read()["candidate_links"]["candidate1"]["url"], "magnet:?xt=urn:btih:abc")
+            with patch.object(jack, "rpc", return_value={"torrent-added": {"id": 9}}) as rpc:
+                jack.add("indexer", "movie", "1080p", identifier="candidate1", url="magnet:?xt=urn:btih:evil")
+                self.assertEqual(rpc.call_args.args[1]["filename"], "magnet:?xt=urn:btih:abc")
+
+    def test_dismiss_notice_persists(self):
+        with tempfile.TemporaryDirectory() as temp:
+            jack = JackSparrow(temp)
+            state = jack.read()
+            state["notices"] = [{"key": "episode:1:2:3", "title": "Show"}]
+            jack.save(state)
+            jack.dismiss_notice("episode:1:2:3")
+            self.assertEqual(jack.read()["notices"], [])
+            self.assertIn("episode:1:2:3", JackSparrow(temp).read()["dismissed"])
+
+    def test_movie_delete_only_uses_recorded_import_paths(self):
+        with tempfile.TemporaryDirectory() as temp:
+            media = Path(temp) / "media"
+            movie = media / "Movies" / "Sample" / "sample.mkv"
+            movie.parent.mkdir(parents=True)
+            movie.write_bytes(b"sample")
+            jack = JackSparrow(temp, media_root=media)
+            state = jack.read()
+            state["completed"] = [{"title": "Sample", "category": "movie", "source_ref": "a",
+                                   "imported_paths": [str(movie)]}]
+            jack.save(state)
+            self.assertEqual(jack.delete_imported_movie("a"), 1)
+            self.assertFalse(movie.exists())
+            state = jack.read()
+            outside = Path(temp) / "outside.mkv"
+            outside.write_bytes(b"safe")
+            state["completed"] = [{"title": "Bad", "category": "movie", "source_ref": "b",
+                                   "imported_paths": [str(outside)]}]
+            jack.save(state)
+            with self.assertRaises(ValueError):
+                jack.delete_imported_movie("b")
+            self.assertTrue(outside.exists())
+
+    def test_plex_episode_notice_does_not_return_after_dismiss(self):
+        with tempfile.TemporaryDirectory() as temp:
+            jack = JackSparrow(temp)
+            jack.plex_library = lambda: {"shows": [{"title": "Sample Show", "episodes": {(1, 2)}}], "movies": []}
+            def tvmaze(url):
+                if "/search/shows" in url:
+                    return [{"show": {"id": 1, "name": "Sample Show"}}]
+                return [{"season": 1, "number": 2, "airdate": "2024-01-01"},
+                        {"season": 1, "number": 3, "name": "New", "airdate": "2024-01-08"}]
+            with patch("jack_sparrow._json_url", side_effect=tvmaze):
+                jack.refresh_plex_notices()
+                self.assertEqual(len(jack.read()["notices"]), 1)
+                key = jack.read()["notices"][0]["key"]
+                jack.dismiss_notice(key)
+                state = jack.read()
+                state["last_plex_check"] = 0
+                jack.save(state)
+                jack.refresh_plex_notices()
+            self.assertEqual(jack.read()["notices"], [])
 
     def test_completed_history_survives_queue_removal(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -94,7 +163,7 @@ class JackSparrowTest(unittest.TestCase):
                        'rateDownload': 0, 'peersConnected': 0, 'eta': -1,
                        'downloadDir': str(jack.staging), 'files': []}
             with patch.object(jack, 'rpc', return_value={'torrents': [torrent]}), \
-                 patch.object(jack, '_import'):
+                 patch.object(jack, '_import', return_value=[]):
                 jack.jobs()
             self.assertEqual(len(jack.read()['completed']), 1)
             with patch.object(jack, 'rpc', return_value={}):

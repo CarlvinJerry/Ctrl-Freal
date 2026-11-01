@@ -161,16 +161,16 @@
 
 <section id="jack" class="panel jackSection">
     <div class="sectionHeading"><div><span class="eyebrow">YOUR MEDIA QUEUE</span><h2>Jack Sparrow</h2></div></div>
-    <p class="hint">Browse Archive releases and your saved torrent feeds. Review each result and choose its Plex library before downloading.</p>
+    <p class="hint">Search public indexers, Archive releases and saved feeds. Choose a result and Plex library before downloading.</p>
     <div class="jackSearch"><input id="jackQuery" type="search" placeholder="Search titles or episodes" aria-label="Search media"><button id="jackSearchButton" type="button">Search</button></div>
-    <div class="jackFilters"><select id="jackSource" aria-label="Torrent source"><option value="all">All sources</option><option value="archive">Archive catalog</option><option value="feeds">My feeds</option></select><select id="jackQuality" aria-label="Quality"><option value="any">Any quality</option><option value="480p">480p</option><option value="720p">720p</option><option value="1080p">1080p</option><option value="2160p">4K</option></select><select id="jackType" aria-label="Media type"><option value="all">All types</option><option value="movie">Movies</option><option value="series">Series</option><option value="music">Music</option><option value="other">Other</option></select><select id="jackOrder" aria-label="Order results"><option value="newest">Newest</option><option value="seeders">Most seeders</option><option value="english">English first</option><option value="title">Title A–Z</option><option value="completed">Downloaded first</option></select></div>
+    <div class="jackFilters"><select id="jackSource" aria-label="Torrent source"><option value="all">All sources</option><option value="indexers">Public indexers</option><option value="archive">Archive catalog</option><option value="feeds">My feeds</option></select><select id="jackQuality" aria-label="Quality"><option value="any">Any quality</option><option value="480p">480p</option><option value="720p">720p</option><option value="1080p">1080p</option><option value="2160p">4K</option></select><select id="jackType" aria-label="Media type"><option value="all">All types</option><option value="movie">Movies</option><option value="series">Series</option><option value="music">Music</option><option value="other">Other</option></select><select id="jackOrder" aria-label="Order results"><option value="newest">Newest</option><option value="seeders">Most seeders</option><option value="english">English first</option><option value="title">Title A–Z</option><option value="completed">Downloaded first</option></select></div>
     <p id="jackMessage" class="hint" role="status"></p>
     <div id="jackResults" class="jackList"></div>
     <h3>Track a title</h3>
     <p class="hint">Tracked names are highlighted when a saved feed or Archive catalog has a match. Downloads always need your approval.</p>
     <div class="jackSearch"><input id="jackTrackTitle" placeholder="Series or movie title" maxlength="100"><select id="jackTrackType" aria-label="Media type"><option value="series">Series</option><option value="movie">Movie</option><option value="music">Music</option><option value="other">Other</option></select><button id="jackTrackButton" type="button">Track</button></div>
     <div id="jackTracked" class="jackList"></div>
-    <h3>Tracked matches</h3>
+    <h3>Plex release notices</h3><p class="hint">New episodes from Plex series, plus possible sequels and quality upgrades for Plex movies you track. Dismissed notices stay cleared.</p><div id="jackNotices" class="jackList"></div><h3>Tracked matches</h3>
     <div id="jackMatches" class="jackList"></div>
     <h3>Add a source</h3>
     <div class="jackSearch"><input id="jackFeedUrl" type="url" placeholder="Torrent RSS feed URL" aria-label="Torrent RSS feed URL"><button id="jackFeedButton" type="button">Add feed</button></div>

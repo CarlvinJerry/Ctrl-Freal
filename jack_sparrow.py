@@ -6,12 +6,14 @@ import email.utils
 import os
 import re
 import shutil
+import sqlite3
 import threading
 import time
 import urllib.parse
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 
@@ -20,6 +22,18 @@ MEDIA = ("movie", "series", "music", "other")
 VIDEO = {".mp4", ".mkv", ".m4v", ".avi", ".mov", ".webm"}
 AUDIO = {".mp3", ".flac", ".m4a", ".aac", ".ogg"}
 MAX_FEEDS = 12
+INDEXERS = {
+    "thepiratebay": "The Pirate Bay",
+    "knaben": "Knaben",
+    "torrentproject2": "TorrentProject2",
+    "yts": "YTS",
+    "limetorrents": "LimeTorrents",
+    "linuxtracker": "LinuxTracker",
+    "torrentdownloads": "TorrentDownloads",
+    "torrentgalaxyclone": "TorrentGalaxyClone",
+}
+INDEXER_CONFIG = Path("/home/carlvinjerry/tcl-remote/indexer/config/Jackett/ServerConfig.json")
+PLEX_DB = Path("/var/lib/plexmediaserver/Library/Application Support/Plex Media Server/Plug-in Support/Databases/com.plexapp.plugins.library.db")
 LOCK = threading.RLock()
 
 
@@ -84,15 +98,109 @@ class JackSparrow:
         self.media_root = Path(media_root)
         self.staging = self.media_root / ".jack-sparrow-downloads"
         self.jobs_lock = threading.Lock()
+        self.indexer_config = INDEXER_CONFIG
+        self.plex_db = PLEX_DB
 
     def read(self):
         with LOCK:
             if not self.state_path.exists():
-                return {"feeds": [], "tracked": [], "jobs": {}, "matches": [], "completed": []}
+                return {"feeds": [], "tracked": [], "jobs": {}, "matches": [], "completed": [],
+                        "candidate_links": {}, "notices": [], "dismissed": [], "last_plex_check": 0}
             data = json.loads(self.state_path.read_text())
             return {"feeds": data.get("feeds", []), "tracked": data.get("tracked", []),
                     "jobs": data.get("jobs", {}), "matches": data.get("matches", []),
-                    "completed": data.get("completed", [])}
+                    "completed": data.get("completed", []),
+                    "candidate_links": data.get("candidate_links", {}),
+                    "notices": data.get("notices", []), "dismissed": data.get("dismissed", []),
+                    "last_plex_check": data.get("last_plex_check", 0)}
+
+    def plex_library(self):
+        if not self.plex_db.is_file():
+            return {"shows": [], "movies": []}
+        uri = self.plex_db.resolve().as_uri() + "?mode=ro"
+        with sqlite3.connect(uri, uri=True, timeout=3) as db:
+            db.execute("PRAGMA query_only=ON")
+            shows = db.execute("SELECT id,title FROM metadata_items WHERE metadata_type=2 AND deleted_at IS NULL").fetchall()
+            episodes = db.execute("SELECT show.id,season.\"index\",episode.\"index\" FROM metadata_items episode JOIN metadata_items season ON episode.parent_id=season.id JOIN metadata_items show ON season.parent_id=show.id WHERE episode.metadata_type=4 AND episode.deleted_at IS NULL").fetchall()
+            movies = db.execute("SELECT movie.title,movie.year,MAX(COALESCE(media.height,0)) FROM metadata_items movie LEFT JOIN media_items media ON media.metadata_item_id=movie.id WHERE movie.metadata_type=1 AND movie.deleted_at IS NULL GROUP BY movie.id").fetchall()
+        owned = {}
+        for show_id, season, episode in episodes:
+            owned.setdefault(show_id, set()).add((season, episode))
+        return {"shows": [{"title": title, "episodes": owned.get(show_id, set())} for show_id, title in shows],
+                "movies": [{"title": title, "year": year, "height": height} for title, year, height in movies]}
+
+    def refresh_plex_notices(self):
+        state = self.read()
+        if time.time() - state["last_plex_check"] < 21600:
+            return
+        library = self.plex_library()
+        proposed = []
+        today = time.strftime("%Y-%m-%d")
+        for show in library["shows"][:30]:
+            if not show["episodes"]:
+                continue
+            latest_owned = max(show["episodes"], default=(0, 0))
+            try:
+                matches = _json_url("https://api.tvmaze.com/search/shows?q=" + urllib.parse.quote(show["title"]))
+                hit = next((x["show"] for x in matches if x["show"]["name"].casefold() == show["title"].casefold()), None)
+                if not hit:
+                    continue
+                episodes = _json_url("https://api.tvmaze.com/shows/" + str(hit["id"]) + "/episodes")
+                for episode in episodes:
+                    season, number = episode.get("season"), episode.get("number")
+                    airdate = episode.get("airdate") or ""
+                    if not season or not number or not airdate or airdate > today or (season, number) <= latest_owned:
+                        continue
+                    key = f"episode:{hit['id']}:{season}:{number}"
+                    proposed.append({"key": key, "kind": "episode", "title": show["title"],
+                                     "detail": f"S{season:02d}E{number:02d} · {episode.get('name') or 'New episode'} · {airdate}",
+                                     "query": f"{show['title']} S{season:02d}E{number:02d}"})
+            except (OSError, ValueError, KeyError, TypeError, TimeoutError):
+                continue
+        for tracked in state["tracked"]:
+            if tracked["category"] != "movie":
+                continue
+            movie = next((x for x in library["movies"] if x["title"].casefold() == tracked["title"].casefold()), None)
+            if not movie:
+                continue
+            try:
+                results = self.discover(movie["title"], "any", "indexers")["results"]
+            except (OSError, ValueError, TimeoutError):
+                continue
+            for item in results:
+                if item["category"] != "movie" or item["language"] == "other":
+                    continue
+                title = item["title"].casefold()
+                base = movie["title"].casefold()
+                if not title.startswith(base):
+                    continue
+                if movie["year"] and not re.search(r"\b" + str(movie["year"]) + r"\b", title) and not re.search(r"(?:part|chapter)\s*[2-9]|\b(?:ii|iii|iv)\b", title[len(base):len(base)+25]):
+                    continue
+                height = {"480p": 480, "720p": 720, "1080p": 1080, "2160p": 2160}.get(item["quality"], 0)
+                sequel = bool(re.search(r"(?:part|chapter)\s*[2-9]|\b(?:ii|iii|iv)\b", title[len(base):len(base)+25]))
+                if not sequel and height <= movie["height"]:
+                    continue
+                kind = "sequel" if sequel else "upgrade"
+                key = kind + ":" + item["id"]
+                proposed.append({"key": key, "kind": kind, "title": item["title"],
+                                 "detail": ("Possible sequel" if sequel else "Possible quality upgrade") +
+                                           f" · {item['quality']} · {item.get('seeders') or 0} seeders",
+                                 "query": movie["title"]})
+        with LOCK:
+            state = self.read()
+            known = {x["key"] for x in state["notices"]} | set(state["dismissed"])
+            state["notices"] = (state["notices"] + [x for x in proposed if x["key"] not in known])[-100:]
+            state["last_plex_check"] = int(time.time())
+            self.save(state)
+
+    def dismiss_notice(self, key):
+        with LOCK:
+            state = self.read()
+            if not any(x["key"] == key for x in state["notices"]):
+                raise ValueError("Unknown notice")
+            state["notices"] = [x for x in state["notices"] if x["key"] != key]
+            state["dismissed"].append(key)
+            self.save(state)
 
     def save(self, data):
         with LOCK:
@@ -181,8 +289,51 @@ class JackSparrow:
                  "language": language_of(str(doc.get("title", "")), doc.get("language")),
                  "category": "movie"} for doc in docs]
 
+    def indexer_search(self, name, query):
+        if name not in INDEXERS or not self.indexer_config.is_file():
+            raise ValueError("Indexer unavailable")
+        key = json.loads(self.indexer_config.read_text())["APIKey"]
+        params = urllib.parse.urlencode({"apikey": key, "t": "search", "q": query[:80]})
+        url = ("http://127.0.0.1:9117/api/v2.0/indexers/" + name +
+               "/results/torznab/api?" + params)
+        with urllib.request.urlopen(url, timeout=18) as response:
+            body = response.read(3_000_001)
+        if len(body) > 3_000_000:
+            raise ValueError("Indexer response too large")
+        root = ET.fromstring(body)
+        if root.tag == "error":
+            raise ValueError("Indexer search failed")
+        results = []
+        for item in root.findall(".//item")[:60]:
+            title = item.findtext("title") or "Untitled"
+            attrs = {x.get("name"): x.get("value") for x in item if x.tag.endswith("attr")}
+            link = attrs.get("magneturl") or item.findtext("link") or ""
+            if not link:
+                enclosure = item.find("enclosure")
+                link = enclosure.get("url", "") if enclosure is not None else ""
+            if not (link.startswith("magnet:?xt=urn:btih:") or
+                    link.startswith("http://127.0.0.1:9117/dl/")):
+                continue
+            identity = attrs.get("infohash") or item.findtext("guid") or link
+            ref = hashlib.sha256((name + "|" + identity).encode()).hexdigest()[:32]
+            category_code = next((x.text for x in item.findall("category") if x.text), "")
+            category = ("series" if category_code.startswith("5") else
+                        "music" if category_code.startswith("3") else
+                        "movie" if category_code.startswith("2") else category_of(title))
+            try:
+                seeders = int(attrs.get("seeders") or 0)
+            except ValueError:
+                seeders = None
+            results.append({"title": title[:180], "source": "indexer", "indexer": name,
+                            "indexer_name": INDEXERS[name], "id": ref, "_download": link,
+                            "quality": quality_of(title), "seeders": seeders,
+                            "language": language_of(title), "category": category,
+                            "date": self._date(item.findtext("pubDate") or "")})
+        return results
+
     def discover(self, query="", quality="any", source="all"):
-        if quality not in QUALITY or source not in ("all", "archive", "feeds"):
+        if quality not in QUALITY or source not in ("all", "archive", "feeds", "indexers") and not (
+                source.startswith("indexer:") and source.split(":", 1)[1] in INDEXERS):
             raise ValueError("Invalid search filter")
         state = self.read()
         results = []
@@ -198,8 +349,28 @@ class JackSparrow:
                     results.extend(self._feed_items(feed))
                 except (OSError, ValueError, ET.ParseError, TimeoutError):
                     errors.append("Could not load a saved feed")
+        if source in ("all", "indexers") or source.startswith("indexer:"):
+            names = list(INDEXERS) if source in ("all", "indexers") else [source.split(":", 1)[1]]
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                tasks = {pool.submit(self.indexer_search, name, query): name for name in names}
+                for future in as_completed(tasks):
+                    name = tasks[future]
+                    try:
+                        results.extend(future.result())
+                    except (OSError, ValueError, ET.ParseError, KeyError, TimeoutError):
+                        errors.append(INDEXERS[name] + " unavailable")
+            links = {x["id"]: {"url": x.pop("_download"), "title": x["title"],
+                                "indexer": x["indexer"], "saved_at": int(time.time())}
+                     for x in results if x.get("source") == "indexer" and x.get("_download")}
+            if links:
+                with LOCK:
+                    current = self.read()
+                    current["candidate_links"].update(links)
+                    current["candidate_links"] = dict(list(current["candidate_links"].items())[-500:])
+                    self.save(current)
         if query:
-            results = [x for x in results if query.casefold() in x["title"].casefold()]
+            words = re.findall(r"\w+", query.casefold())
+            results = [x for x in results if all(word in x["title"].casefold() for word in words)]
         if quality != "any":
             results = [x for x in results if x["quality"] in (quality, "varies", "unknown")]
         results.sort(key=lambda x: (x.get("language") == "english",
@@ -255,7 +426,10 @@ class JackSparrow:
         state = self.read()
         if not state["tracked"]:
             return state["matches"]
-        results = self.discover("", "any", "all")["results"]
+        results = self.discover("", "any", "archive")["results"] + self.discover("", "any", "feeds")["results"]
+        for tracked in state["tracked"][:12]:
+            if tracked["category"] in ("series", "movie"):
+                results.extend(self.discover(tracked["title"], "any", "indexers")["results"])
         with LOCK:
             state = self.read()
             known = {item["key"] for item in state["matches"]}
@@ -265,7 +439,7 @@ class JackSparrow:
                         continue
                     identity = item.get("url") or item.get("id") or item["title"]
                     key = hashlib.sha256((tracked["title"] + "|" + identity).encode()).hexdigest()[:24]
-                    if key not in known:
+                    if key not in known and key not in state["dismissed"]:
                         state["matches"].insert(0, {**item, "key": key,
                                                     "tracked_title": tracked["title"],
                                                     "found_at": int(time.time()), "seen": False})
@@ -281,6 +455,7 @@ class JackSparrow:
             if match is None:
                 raise ValueError("Unknown tracked match")
             match["seen"] = True
+            state["dismissed"].append(key)
             self.save(state)
 
     def manage(self, job_id, action):
@@ -321,10 +496,19 @@ class JackSparrow:
             filename = urllib.parse.quote(torrents[0]["name"])
             url = "https://archive.org/download/" + identifier + "/" + filename
             title = metadata.get("metadata", {}).get("title", identifier)
+        elif source == "indexer":
+            candidate = self.read()["candidate_links"].get(identifier or "")
+            if not candidate or time.time() - candidate.get("saved_at", 0) > 86400:
+                raise ValueError("Search again to refresh this result")
+            url, title = candidate["url"], candidate["title"]
+            if not (url.startswith("magnet:?xt=urn:btih:") or
+                    url.startswith("http://127.0.0.1:9117/dl/")):
+                raise ValueError("Invalid indexer result")
         elif source != "feed" and source != "magnet":
             raise ValueError("Unknown source")
         if not url or not (url.startswith("magnet:?xt=urn:btih:") or
-                           (url.startswith(("https://", "http://")) and ".torrent" in url.lower().split("?")[0])):
+                           (url.startswith(("https://", "http://")) and ".torrent" in url.lower().split("?")[0]) or
+                           source == "indexer" and url.startswith("http://127.0.0.1:9117/dl/")):
             raise ValueError("Enter a magnet or torrent URL")
         if not title:
             title = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query).get("dn", ["Untitled"])[0]
@@ -345,7 +529,7 @@ class JackSparrow:
             state["jobs"][job_id] = {"title": title, "category": category, "quality": quality,
                                       "source": source, "imported": False,
                                       "wanted_names": wanted_names, "selected": False,
-                                      "source_ref": identifier if source == "archive" else url}
+                                      "source_ref": identifier if source in ("archive", "indexer") else url}
             self.save(state)
         return job_id
 
@@ -392,14 +576,16 @@ class JackSparrow:
                 self.save(state)
             if torrent.get("percentDone") == 1 and not job["imported"]:
                 try:
-                    self._import(torrent, job)
+                    imported_paths = self._import(torrent, job) or []
                     job["imported"] = True
+                    job["imported_paths"] = imported_paths
                     job.pop("error", None)
                     if not any(x.get("source_ref") == job.get("source_ref") and
                                x.get("title") == job["title"] for x in state["completed"]):
                         state["completed"].insert(0, {"title": job["title"],
                                                       "category": job["category"],
                                                       "source_ref": job.get("source_ref"),
+                                                      "imported_paths": imported_paths,
                                                       "completed_at": int(time.time())})
                         state["completed"] = state["completed"][:300]
                 except (OSError, ValueError, RuntimeError) as exc:
@@ -447,6 +633,7 @@ class JackSparrow:
                     title = clean_title(match.group(1)) + " (" + match.group(2) + ")"
             title_dir = target_root / title
         title_dir.mkdir(parents=True, exist_ok=True)
+        imported_paths = []
         for path in files:
             destination = title_dir / clean_title(path.name)
             if destination.exists():
@@ -455,3 +642,27 @@ class JackSparrow:
                 os.link(path, destination)
             except OSError:
                 shutil.copy2(path, destination)
+            imported_paths.append(str(destination))
+        return imported_paths
+
+    def delete_imported_movie(self, source_ref):
+        with LOCK:
+            state = self.read()
+            item = next((x for x in state["completed"] if x.get("source_ref") == source_ref and
+                         x.get("category") == "movie"), None)
+            if not item or not item.get("imported_paths"):
+                raise ValueError("No Jack-imported movie files found")
+            root = (self.media_root / "Movies").resolve()
+            paths = [Path(p) for p in item["imported_paths"]]
+            if any(p.is_symlink() or not p.resolve().is_relative_to(root) or
+                   not p.resolve().is_file() for p in paths):
+                raise ValueError("Movie files have changed; deletion cancelled")
+            for path in paths:
+                path.unlink()
+            state["completed"].remove(item)
+            for job in state["jobs"].values():
+                if job.get("source_ref") == source_ref:
+                    job["imported_paths"] = []
+                    job["deleted"] = True
+            self.save(state)
+            return len(paths)
