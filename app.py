@@ -1149,6 +1149,21 @@ def screensaver_settings(host):
     return component, enabled
 
 
+def viewer_auto_start(host, grant=False):
+    """Some TCL firmware blocks third-party dream services until this app-op is allowed."""
+    try:
+        result = adb_command(host, "shell", "appops", "get", VIEWER_PACKAGE, "APP_AUTO_START")
+    except (OSError, subprocess.SubprocessError):
+        return None  # Other Android TV vendors may not expose this operation.
+    if "APP_AUTO_START:" not in result:
+        return None
+    allowed = bool(re.search(r"APP_AUTO_START:\s*allow\b", result))
+    if grant and not allowed:
+        adb_command(host, "shell", "appops", "set", VIEWER_PACKAGE, "APP_AUTO_START", "allow")
+        return viewer_auto_start(host)
+    return allowed
+
+
 @app.get("/api/screensaver/<tv_id>")
 def screensaver_status(tv_id):
     if not authenticated():
@@ -1160,7 +1175,8 @@ def screensaver_status(tv_id):
         return jsonify(supported=False, enabled=False)
     try:
         component, enabled = screensaver_settings(tvs[tv_id]["host"])
-        return jsonify(supported=True, enabled=(component == VIEWER_DREAM and enabled == "1"))
+        return jsonify(supported=True, enabled=(component == VIEWER_DREAM and enabled == "1"),
+                       auto_start=viewer_auto_start(tvs[tv_id]["host"]))
     except (subprocess.SubprocessError, OSError):
         return jsonify(error="Could not check TV screensaver"), 503
 
@@ -1184,6 +1200,9 @@ def set_screensaver(tv_id):
             backups = json.loads(SCREENSAVER_BACKUP.read_text()) if SCREENSAVER_BACKUP.exists() else {}
             if data["enabled"]:
                 ensure_magicmirror_viewer(host)
+                auto_start = viewer_auto_start(host, grant=True)
+                if auto_start is False:
+                    raise RuntimeError("TV blocked MagicMirror auto-start")
                 if current != VIEWER_DREAM:
                     backups[tv_id] = {"component": current, "enabled": previous_enabled}
                     temp = SCREENSAVER_BACKUP.with_name(SCREENSAVER_BACKUP.name + ".new")
@@ -1205,7 +1224,7 @@ def set_screensaver(tv_id):
                 os.chmod(temp, 0o600)
                 os.replace(temp, SCREENSAVER_BACKUP)
         return jsonify(ok=True, enabled=data["enabled"])
-    except (subprocess.SubprocessError, OSError, ValueError, KeyError):
+    except (subprocess.SubprocessError, OSError, ValueError, KeyError, RuntimeError):
         app.logger.exception("TV screensaver update failed")
         return jsonify(error="Could not update TV screensaver"), 503
 
@@ -1645,6 +1664,23 @@ def command():
         "up", "down", "left", "right", "ok", "back", "home"
     }):
         return jsonify(error="Guest remote cannot use this control"), 403
+
+    if kind in ("power_shutdown", "power_reboot"):
+        if value != "power":
+            return jsonify(error="Invalid power command"), 400
+        config = read_tvs()[tv_id]
+        if config.get("type", "android") != "android":
+            return jsonify(error="Full shutdown and restart require Android TV debugging"), 501
+        args = ["adb", "-s", f"{config['host']}:5555", "shell", "reboot"]
+        if kind == "power_shutdown":
+            args.append("-p")
+        try:
+            result = subprocess.run(args, capture_output=True, text=True, timeout=8)
+            if result.returncode != 0:
+                raise RuntimeError("TV rejected power action")
+            return jsonify(ok=True, action=kind)
+        except (OSError, subprocess.SubprocessError, RuntimeError):
+            return jsonify(error="TV did not accept the power action. Check Android TV debugging."), 503
 
     if kind == "key":
         if value not in KEYS:

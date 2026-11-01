@@ -724,11 +724,38 @@ function installLongPress() {
 
   document.querySelectorAll("[data-key]").forEach(button => {
     const name = button.dataset.key;
-        if (name === "power") {
+    if (name === "power") {
       let timer = null;
+      let tapTimer = null;
+      let taps = 0;
+      let tapTV = null;
       let holding = false;
       let pressed = false;
       let suppressClick = false;
+
+      const finishTaps = () => {
+        clearTimeout(tapTimer);
+        const count = taps;
+        const selectedTV = tapTV;
+        taps = 0;
+        if (selectedTV !== tv) return;
+        if (count === 1) key("power");
+        else if (count === 3) {
+          if (tvTypes[tv] !== "android") return toast("Full shutdown needs Android TV debugging");
+          if (confirm("Shut down this TV completely? The phone remote may not be able to turn it back on; use the physical remote if needed.")) command("power_shutdown", "power");
+        } else if (count === 5) {
+          if (tvTypes[tv] !== "android") return toast("Restart needs Android TV debugging");
+          if (confirm("Restart this TV now? It will disconnect briefly.")) command("power_reboot", "power");
+        } else if (count) toast("Power: tap once for standby, 3 times to shut down, or 5 times to restart");
+      };
+      const registerTap = () => {
+        if (tapTV !== tv) taps = 0;
+        tapTV = tv;
+        taps++;
+        clearTimeout(tapTimer);
+        if (taps === 5) finishTaps();
+        else tapTimer = setTimeout(finishTaps, 620);
+      };
 
       button.addEventListener("pointerdown", e => {
         if (e.button !== 0) return;
@@ -736,11 +763,13 @@ function installLongPress() {
         pressed = true;
         holding = false;
         suppressClick = false;
+        clearTimeout(tapTimer);
 
         clearTimeout(timer);
         timer = setTimeout(() => {
           if (!pressed) return;
           holding = true;
+          taps = 0;
           command("power_start", "power");
         }, 700);
       });
@@ -755,7 +784,7 @@ function installLongPress() {
           command("power_end", "power");
           suppressClick = true;
         } else {
-          key("power");
+          registerTap();
           suppressClick = true;
         }
 
@@ -763,8 +792,13 @@ function installLongPress() {
       };
 
       button.addEventListener("pointerup", release);
-      button.addEventListener("pointercancel", release);
-      button.addEventListener("pointerleave", release);
+      const cancel = () => {
+        if (pressed && holding) { command("power_end", "power"); suppressClick = true; }
+        pressed = false; holding = false; suppressClick = true; taps = 0;
+        clearTimeout(timer); clearTimeout(tapTimer);
+      };
+      button.addEventListener("pointercancel", cancel);
+      button.addEventListener("pointerleave", cancel);
 
       button.addEventListener("click", e => {
         if (suppressClick) {
@@ -772,7 +806,7 @@ function installLongPress() {
           suppressClick = false;
           return;
         }
-        key("power");
+        registerTap();
       });
 
       return;
@@ -1094,9 +1128,11 @@ async function updateScreensaverStatus() {
     if (selectedTV !== tv) return;
     if (!response.ok) throw new Error(data.error || "Screensaver unavailable");
     button.dataset.enabled = String(data.enabled);
-    button.textContent = data.enabled ? "Restore previous screensaver" : "Use MagicMirror as screensaver";
+    button.dataset.repair = String(data.enabled && data.auto_start === false);
+    button.textContent = data.enabled && data.auto_start === false ? "Repair MagicMirror screensaver" :
+      data.enabled ? "Restore previous screensaver" : "Use MagicMirror as screensaver";
     $("screensaverStatus").textContent = data.enabled
-      ? "MagicMirror is selected for idle time."
+      ? data.auto_start === false ? "MagicMirror is selected, but this TV blocks it from starting. Tap Repair to allow it." : "MagicMirror is selected for idle time. This TV's display timeout is set in Android TV settings."
       : "Your TV currently uses another screensaver.";
   } catch (error) {
     if (selectedTV !== tv) return;
@@ -1113,7 +1149,7 @@ async function toggleScreensaver() {
   if (!button.dataset.enabled) { await updateScreensaverStatus(); return; }
   button.disabled = true;
   try {
-    const enabled = button.dataset.enabled !== "true";
+    const enabled = button.dataset.repair === "true" || button.dataset.enabled !== "true";
     const data = await pairingPost(`/api/screensaver/${encodeURIComponent(tv)}`, {enabled});
     toast(data.enabled ? "MagicMirror screensaver enabled" : "Previous screensaver restored");
     await updateScreensaverStatus();
