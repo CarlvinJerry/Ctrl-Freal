@@ -72,7 +72,7 @@ body:is(.dark-glass,.light-glass,.midnight) :is(.hardwareCard,.buttonGrid button
 body.light-glass .bottomNav,body.light .bottomNav { background:rgba(248,251,255,.88); border-color:rgba(70,90,125,.09); }
 body.light-glass .bottomNav button,body.light .bottomNav button { color:#62738c; }
 body.light-glass .bottomNav button.selected,body.light .bottomNav button.selected { color:#294c8b; background:rgba(63,100,174,.12); }
-.appFooter { margin:28px 0 6px; padding:12px; text-align:center; font-size:11px; letter-spacing:.4px; color:var(--muted); opacity:.7; }
+.appFooter { margin:28px 0 6px; padding:12px; text-align:center; font-size:11px; letter-spacing:.4px; color:var(--user-accent); opacity:.95; }
 #toast { bottom:calc(96px + env(safe-area-inset-bottom)); }
 @media(min-width:700px) { .dpad { width:100%; max-width:440px; height:224px; } }
 @media(prefers-reduced-motion:reduce) { button { transition:none; } }

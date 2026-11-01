@@ -4,7 +4,7 @@ Self-hosted remote for Android TV / Google TV and LG webOS. The Raspberry Pi run
 
 ## Version
 
-Current app version: **3.10.0**. `version.py` is the single source for the displayed version and bootstrap API. Use semantic versioning (`MAJOR.MINOR.PATCH`): increment major for incompatible releases, minor for backward-compatible features, and patch for fixes. Update `version.py` with each release.
+Current app version: **3.10.1**. `version.py` is the single source for the displayed version and bootstrap API. Use semantic versioning (`MAJOR.MINOR.PATCH`): increment major for incompatible releases, minor for backward-compatible features, and patch for fixes. Update `version.py` with each release.
 
 ## Add a TV
 
@@ -48,3 +48,5 @@ Paired TVs and credentials stay in `tvs.json` on the Pi. Every two minutes, Ctrl
 **v3.9.0:** TV app banners become full artwork cards where available; square app icons remain the fallback. Jack and Plex rows use locally cached, phone-sized Plex posters where titles match. A compact Pi health strip, Continue Watching shelf, unified search, grouped scrollable release notices and match options, collapsible app lists, and reduced-motion-aware transitions improve phone use. Jack keeps the last known job cards during transient status errors, offers a file verification action for failed torrents, and waits for an explicit search or Explore Latest tap before loading broad release results. Torrent-match pop-up toasts are disabled. Continue Watching opens Plex on the TV; title-specific playback remains a future integration.
 
 **v3.10.0:** Room-specific appearance profiles add uploaded photo or Plex-artwork backgrounds, dim and blur controls, glass strength, and optional effects. Quick actions provide one-tap Plex, MagicMirror and downloads access. Jack previews storage before downloads and folds download controls into a detail sheet. Encrypted backup and restore carries paired TV credentials, room photos, preferences, and Jack sources; current downloads remain intact. A backup password of at least 12 characters is required. Keep the backup file and password secure.
+
+**v3.10.1:** The version and builder signoff follows the selected accent color.
