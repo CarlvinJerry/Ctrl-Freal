@@ -1675,6 +1675,8 @@ def command():
         if kind == "power_shutdown":
             args.append("-p")
         try:
+            subprocess.run(["adb", "connect", f"{config['host']}:5555"],
+                           capture_output=True, text=True, timeout=4, check=True)
             result = subprocess.run(args, capture_output=True, text=True, timeout=8)
             if result.returncode != 0:
                 raise RuntimeError("TV rejected power action")
@@ -1711,6 +1713,16 @@ def command():
 
     else:
         return jsonify(error="Unknown command type"), 400
+
+    if kind == "key" and value == "POWER" and read_tvs()[tv_id].get("type", "android") == "android":
+        host = read_tvs()[tv_id]["host"]
+        try:
+            result = subprocess.run(["adb", "-s", f"{host}:5555", "shell", "input", "keyevent", "KEYCODE_POWER"],
+                                    capture_output=True, text=True, timeout=4)
+            if result.returncode == 0:
+                return jsonify(ok=True)
+        except (OSError, subprocess.SubprocessError):
+            pass  # Fall back to the paired TV remote when ADB is unavailable.
 
     try:
         controller.send(tv_id, kind, value)

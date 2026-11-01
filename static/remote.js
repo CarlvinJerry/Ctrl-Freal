@@ -738,13 +738,16 @@ function installLongPress() {
         const count = taps;
         const selectedTV = tapTV;
         taps = 0;
+        delete button.dataset.taps;
         if (selectedTV !== tv) return;
         if (count === 1) key("power");
         else if (count === 3) {
           if (tvTypes[tv] !== "android") return toast("Full shutdown needs Android TV debugging");
+          toast("Shutting down TV…");
           command("power_shutdown", "power");
         } else if (count === 5) {
           if (tvTypes[tv] !== "android") return toast("Restart needs Android TV debugging");
+          toast("Restarting TV…");
           command("power_reboot", "power");
         } else if (count) toast("Power: tap once for standby, 3 times to shut down, or 5 times to restart");
       };
@@ -752,9 +755,10 @@ function installLongPress() {
         if (tapTV !== tv) taps = 0;
         tapTV = tv;
         taps++;
+        button.dataset.taps = String(taps);
         clearTimeout(tapTimer);
         if (taps === 5) finishTaps();
-        else tapTimer = setTimeout(finishTaps, 620);
+        else tapTimer = setTimeout(finishTaps, 500);
       };
 
       button.addEventListener("pointerdown", e => {
@@ -770,6 +774,7 @@ function installLongPress() {
           if (!pressed) return;
           holding = true;
           taps = 0;
+          delete button.dataset.taps;
           command("power_start", "power");
         }, 700);
       });
@@ -793,12 +798,14 @@ function installLongPress() {
 
       button.addEventListener("pointerup", release);
       const cancel = () => {
+        if (!pressed) return;
         if (pressed && holding) { command("power_end", "power"); suppressClick = true; }
         pressed = false; holding = false; suppressClick = true; taps = 0;
+        delete button.dataset.taps;
         clearTimeout(timer); clearTimeout(tapTimer);
       };
       button.addEventListener("pointercancel", cancel);
-      button.addEventListener("pointerleave", cancel);
+      button.addEventListener("pointerleave", e => { if (e.pointerType === "mouse") cancel(); });
 
       button.addEventListener("click", e => {
         if (suppressClick) {

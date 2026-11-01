@@ -329,6 +329,8 @@ body[data-effects="off"] button:active { transform:none; }
 .downloadDetails summary { cursor:pointer; color:var(--accent); font-size:12px; font-weight:650; }
 .downloadDetails .jackActions { flex-wrap:wrap; justify-content:flex-start; margin:.4rem 0 0; }
 .downloadDetails .hint { margin:.45rem 0; }
+.headerTop .power { position:relative; }
+.headerTop .power[data-taps]::after { content:attr(data-taps); position:absolute; top:-5px; right:-5px; display:grid; place-items:center; width:20px; height:20px; border-radius:50%; background:var(--accent); color:var(--bg); font-size:11px; font-weight:800; }
 @keyframes completionGlow { 0% { box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 55%,transparent); } 100% { box-shadow:0 0 0 12px transparent; } }
 #toast.completionToast { border:1px solid var(--accent); animation:completionGlow .8s ease-out; }
 body[data-effects="off"] #toast.completionToast { animation:none; }
