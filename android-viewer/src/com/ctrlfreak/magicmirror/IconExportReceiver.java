@@ -16,20 +16,25 @@ public final class IconExportReceiver extends BroadcastReceiver {
         String packageName = intent.getStringExtra("package");
         if (packageName == null || !packageName.matches("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+")) return;
         try {
-            Drawable icon = context.getPackageManager().getApplicationIcon(packageName);
-            Bitmap bitmap = Bitmap.createBitmap(128, 128, Bitmap.Config.ARGB_8888);
-            Canvas canvas = new Canvas(bitmap);
-            icon.setBounds(0, 0, 128, 128);
-            icon.draw(canvas);
             File directory = context.getExternalFilesDir("icons");
             if (directory == null || (!directory.exists() && !directory.mkdirs())) return;
-            File target = new File(directory, packageName + ".png");
-            try (FileOutputStream output = new FileOutputStream(target)) {
-                bitmap.compress(Bitmap.CompressFormat.PNG, 100, output);
-            }
-            bitmap.recycle();
+            save(context.getPackageManager().getApplicationIcon(packageName),
+                 new File(directory, packageName + ".png"), 128, 128);
+            Drawable banner = context.getPackageManager().getApplicationBanner(packageName);
+            if (banner != null) save(banner, new File(directory, packageName + ".banner.png"), 320, 180);
         } catch (Exception ignored) {
             // Some TV packages do not expose an icon. The remote keeps its text fallback.
         }
+    }
+
+    private static void save(Drawable drawable, File target, int width, int height) throws Exception {
+        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+        drawable.setBounds(0, 0, width, height);
+        drawable.draw(canvas);
+        try (FileOutputStream output = new FileOutputStream(target)) {
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, output);
+        }
+        bitmap.recycle();
     }
 }

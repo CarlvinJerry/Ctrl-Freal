@@ -97,6 +97,8 @@ class JackSparrowTest(unittest.TestCase):
             with patch.object(jack, "rpc", return_value={}) as rpc:
                 jack.manage(5, "pause")
                 rpc.assert_called_with("torrent-stop", {"ids": [5]})
+                jack.manage(5, "verify")
+                rpc.assert_called_with("torrent-verify", {"ids": [5]})
                 jack.manage(5, "remove")
             self.assertEqual(jack.read()["jobs"], {})
 

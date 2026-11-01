@@ -19,6 +19,7 @@ from waitress import serve
 from androidtvremote2 import AndroidTVRemote
 from version import APP_VERSION
 from jack_sparrow import JackSparrow, INDEXERS
+from plex_extras import PlexExtras
 import sqlite3
 
 BASE = Path(__file__).resolve().parent
@@ -31,10 +32,13 @@ SECRET = (BASE / ".session_secret").read_text().strip()
 PORT = int(os.getenv("REMOTE_PORT", "8091"))
 MAGICMIRROR_URL = os.getenv("REMOTE_MAGICMIRROR_URL", "http://192.168.1.21:8080/")
 VIEWER_PACKAGE = "com.ctrlfreak.magicmirror"
-VIEWER_VERSION_CODE = 9
+VIEWER_VERSION_CODE = 10
 VIEWER_DREAM = f"{VIEWER_PACKAGE}/.MirrorDreamService"
 VIEWER_APK = BASE / "static" / "magicmirror-viewer.apk"
 JACK = JackSparrow(BASE, media_root=os.getenv("JACK_MEDIA_ROOT", "/media/carlvinjerry/Views"))
+PLEX = PlexExtras(BASE)
+ECOSYSTEM_CACHE = {"at": 0, "data": None}
+JACK_STATUS_CACHE = {"jobs": [], "at": 0}
 APP_ICON_DIR = BASE / ".app-icons"
 APP_ICON_LOCK = threading.Lock()
 APP_ICON_THREADS = {}
@@ -238,29 +242,43 @@ def icon_path(tv_id, package):
     return APP_ICON_DIR / tv_id / name
 
 
+def banner_path(tv_id, package):
+    name = hashlib.sha256(package.encode()).hexdigest() + ".banner.png"
+    return APP_ICON_DIR / tv_id / name
+
+
 def cache_app_icons(tv_id, host, packages):
     try:
         ensure_magicmirror_viewer(host)
         serial = f"{host}:5555"
         for package in packages:
-            target = icon_path(tv_id, package)
-            if target.is_file():
+            icon = icon_path(tv_id, package)
+            banner = banner_path(tv_id, package)
+            missing_banner = banner.with_suffix(".missing")
+            if icon.is_file() and (banner.is_file() or missing_banner.is_file()):
                 continue
             try:
                 adb_command(host, "shell", "am", "broadcast", "-n",
                             f"{VIEWER_PACKAGE}/.IconExportReceiver", "--es", "package", package,
                             timeout=8)
-                remote = f"/sdcard/Android/data/{VIEWER_PACKAGE}/files/icons/{package}.png"
-                result = subprocess.run(["adb", "-s", serial, "exec-out", "cat", remote],
-                                        capture_output=True, timeout=8, check=True)
-                data = result.stdout
-                if not data.startswith(b"\x89PNG\r\n\x1a\n") or len(data) > 500_000:
-                    continue
-                target.parent.mkdir(parents=True, exist_ok=True)
-                temp = target.with_suffix(".new")
-                temp.write_bytes(data)
-                os.replace(temp, target)
+                for target, suffix in ((icon, ".png"), (banner, ".banner.png")):
+                    if target.is_file():
+                        continue
+                    remote = f"/sdcard/Android/data/{VIEWER_PACKAGE}/files/icons/{package}{suffix}"
+                    result = subprocess.run(["adb", "-s", serial, "exec-out", "cat", remote],
+                                            capture_output=True, timeout=8, check=True)
+                    data = result.stdout
+                    if not data.startswith(b"\x89PNG\r\n\x1a\n") or len(data) > 500_000:
+                        continue
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    temp = target.with_suffix(".new")
+                    temp.write_bytes(data)
+                    os.replace(temp, target)
+                if not banner.is_file():
+                    missing_banner.touch()
             except (subprocess.SubprocessError, OSError, TimeoutError):
+                if icon.is_file() and not banner.is_file():
+                    missing_banner.touch()
                 continue
     except (subprocess.SubprocessError, OSError, TimeoutError):
         app.logger.debug("Could not collect TV app icons for %s", tv_id)
@@ -271,7 +289,9 @@ def cache_app_icons(tv_id, host, packages):
 
 def queue_app_icons(tv_id, host, apps):
     missing = [entry["package"] for entry in apps.values()
-               if not icon_path(tv_id, entry["package"]).is_file()]
+               if not icon_path(tv_id, entry["package"]).is_file() or
+               not (banner_path(tv_id, entry["package"]).is_file() or
+                    banner_path(tv_id, entry["package"]).with_suffix(".missing").is_file())]
     if not missing:
         return
     with APP_ICON_LOCK:
@@ -287,7 +307,9 @@ def queue_app_icons(tv_id, host, apps):
 
 def with_app_icons(tv_id, entries):
     return {key: {**entry, "icon": (f"/api/apps/{tv_id}/icon/{entry['package']}"
-                                    if icon_path(tv_id, entry["package"]).is_file() else None)}
+                                    if icon_path(tv_id, entry["package"]).is_file() else None),
+                  "banner": (f"/api/apps/{tv_id}/banner/{entry['package']}"
+                                     if banner_path(tv_id, entry["package"]).is_file() else None)}
             for key, entry in entries.items()}
 
 
@@ -1041,17 +1063,87 @@ def jack_status():
     if not authenticated():
         return jsonify(error="Unauthorized"), 401
     state = JACK.read()
+    available = True
+    refreshing = False
     try:
-        JACK.rpc("session-get")
         jobs = JACK.jobs()
-        available = True
-    except (OSError, ValueError, RuntimeError, KeyError, TimeoutError):
-        jobs = []
-        available = False
-    return jsonify(feeds=state["feeds"], tracked=state["tracked"], matches=JACK.active_matches(),
-                   notices=state["notices"], indexers=INDEXERS,
-                   completed=JACK.completed_status(state["completed"]), jobs=jobs,
-                   client_available=available)
+        if not state["jobs"]:
+            JACK.rpc("session-get")
+        JACK_STATUS_CACHE.update(jobs=jobs, at=time.monotonic())
+    except (OSError, ValueError, RuntimeError, KeyError, TimeoutError, TypeError) as exc:
+        jobs = JACK_STATUS_CACHE["jobs"]
+        refreshing = True
+        app.logger.debug("Jack job refresh failed: %s", type(exc).__name__)
+        try:
+            JACK.rpc("session-get")
+        except (OSError, ValueError, RuntimeError, KeyError, TimeoutError):
+            available = False
+    notices = [{**item, "category": "series" if item.get("kind") == "episode" else "movie"}
+               for item in state["notices"]]
+    return jsonify(feeds=state["feeds"], tracked=state["tracked"], matches=PLEX.decorate(JACK.active_matches()),
+                   notices=PLEX.decorate(notices), indexers=INDEXERS,
+                   completed=PLEX.decorate(JACK.completed_status(state["completed"])), jobs=PLEX.decorate(jobs),
+                   client_available=available, jobs_refreshing=refreshing)
+
+
+@app.get("/api/plex/continue")
+def plex_continue():
+    if not authenticated():
+        return jsonify(error="Unauthorized"), 401
+    try:
+        return jsonify(items=PLEX.continue_watching())
+    except (OSError, sqlite3.Error):
+        return jsonify(items=[])
+
+
+@app.get("/api/plex/search")
+def plex_search():
+    if not authenticated():
+        return jsonify(error="Unauthorized"), 401
+    try:
+        return jsonify(items=PLEX.search(request.args.get("q", "")[:80]))
+    except (OSError, sqlite3.Error):
+        return jsonify(items=[])
+
+
+@app.get("/api/plex/poster/<kind>/<int:ident>")
+def plex_poster(kind, ident):
+    if not authenticated():
+        return jsonify(error="Unauthorized"), 401
+    try:
+        path = PLEX.poster(kind, ident)
+    except (OSError, sqlite3.Error):
+        path = None
+    if path is None:
+        return jsonify(error="Poster unavailable"), 404
+    return send_file(path, mimetype="image/jpeg", max_age=3600)
+
+
+@app.get("/api/ecosystem")
+def ecosystem_status():
+    if not authenticated():
+        return jsonify(error="Unauthorized"), 401
+    if ECOSYSTEM_CACHE["data"] and time.monotonic() - ECOSYSTEM_CACHE["at"] < 30:
+        return jsonify(ECOSYSTEM_CACHE["data"])
+    try:
+        disk = os.statvfs(JACK.media_root)
+        storage = {"free": disk.f_bavail * disk.f_frsize,
+                   "total": disk.f_blocks * disk.f_frsize}
+    except OSError:
+        storage = None
+    services = {}
+    for name, unit in (("plex", "plexmediaserver.service"),
+                       ("downloads", "ctrlfreak-transmission.service"),
+                       ("indexers", "ctrlfreak-jackett.service")):
+        try:
+            result = subprocess.run(["systemctl", "is-active", unit], capture_output=True,
+                                    text=True, timeout=2)
+            services[name] = result.stdout.strip() == "active"
+        except (OSError, subprocess.SubprocessError):
+            services[name] = None
+    data = {"storage": storage, "services": services}
+    ECOSYSTEM_CACHE.update(at=time.monotonic(), data=data)
+    return jsonify(data)
 
 
 @app.post("/api/jack/notice/dismiss")
@@ -1083,9 +1175,11 @@ def jack_search():
     if not authenticated():
         return jsonify(error="Unauthorized"), 401
     try:
-        return jsonify(JACK.discover(request.args.get("q", "")[:80],
-                                     request.args.get("quality", "any"),
-                                     request.args.get("source", "all")))
+        found = JACK.discover(request.args.get("q", "")[:80],
+                              request.args.get("quality", "any"),
+                              request.args.get("source", "all"))
+        found["results"] = PLEX.decorate(found["results"])
+        return jsonify(found)
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
 
@@ -1195,6 +1289,7 @@ def app_icon_status(tv_id):
     try:
         apps = installed_apps(tv_id)
         return jsonify(icons={key: value.get("icon") for key, value in apps.items() if value.get("icon")},
+                       banners={key: value.get("banner") for key, value in apps.items() if value.get("banner")},
                        total=len(apps))
     except ValueError:
         return jsonify(error="Unknown TV"), 404
@@ -1214,6 +1309,21 @@ def app_icon(tv_id, package):
     path = icon_path(tv_id, package)
     if not allowed or not path.is_file():
         return jsonify(error="Icon unavailable"), 404
+    return send_file(path, mimetype="image/png", max_age=3600)
+
+
+@app.get("/api/apps/<tv_id>/banner/<package>")
+def app_banner(tv_id, package):
+    if not authenticated():
+        return jsonify(error="Unauthorized"), 401
+    if not PACKAGE_RE.fullmatch(package) or tv_id not in read_tvs():
+        return jsonify(error="Unknown app"), 404
+    with APP_CACHE_LOCK:
+        cached = APP_CACHE.get(tv_id)
+        allowed = cached and package in {entry["package"] for entry in cached[1].values()}
+    path = banner_path(tv_id, package)
+    if not allowed or not path.is_file():
+        return jsonify(error="Banner unavailable"), 404
     return send_file(path, mimetype="image/png", max_age=3600)
 
 

@@ -4,7 +4,7 @@ Self-hosted remote for Android TV / Google TV and LG webOS. The Raspberry Pi run
 
 ## Version
 
-Current app version: **3.8.0**. `version.py` is the single source for the displayed version and bootstrap API. Use semantic versioning (`MAJOR.MINOR.PATCH`): increment major for incompatible releases, minor for backward-compatible features, and patch for fixes. Update `version.py` with each release.
+Current app version: **3.9.0**. `version.py` is the single source for the displayed version and bootstrap API. Use semantic versioning (`MAJOR.MINOR.PATCH`): increment major for incompatible releases, minor for backward-compatible features, and patch for fixes. Update `version.py` with each release.
 
 ## Add a TV
 
@@ -44,3 +44,5 @@ Paired TVs and credentials stay in `tvs.json` on the Pi. Every two minutes, Ctrl
 **v3.7.0:** Android TV apps are discovered from their TV and standard launcher entries and opened directly through ADB; sideloaded launchable apps can appear in Favorites. Jack's active matches are grouped by episode, bounded in a phone-sized list, and hidden once queued or completed. Completed downloads are in a collapsed archive. The v3.6.0 release is tagged for rollback.
 
 **v3.8.0:** The Pi caches app icons exported from the TV's installed packages by the MagicMirror viewer and serves them only to authenticated remotes. Text labels remain available. Jack displays download health, progress, speed and estimated time, and checks the local Plex library database to distinguish imported files from media ready in Plex. The Check Plex button refreshes this status; Plex still performs its own automatic or periodic scan. The TV may be off while the Pi downloads.
+
+**v3.9.0:** TV app banners become full artwork cards where available; square app icons remain the fallback. Jack and Plex rows use locally cached, phone-sized Plex posters where titles match. A compact Pi health strip, Continue Watching shelf, unified search, grouped scrollable release notices and match options, collapsible app lists, and reduced-motion-aware transitions improve phone use. Jack keeps the last known job cards during transient status errors, offers a file verification action for failed torrents, and waits for an explicit search or Explore Latest tap before loading broad release results. Torrent-match pop-up toasts are disabled. Continue Watching opens Plex on the TV; title-specific playback remains a future integration.

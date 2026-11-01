@@ -525,7 +525,7 @@ class JackSparrow:
         except (OSError, sqlite3.Error):
             library = {"shows": [], "movies": []}
         results = []
-        grouped = set()
+        grouped = {}
         def rank(item):
             return ("audio description" not in item["title"].casefold(),
                     item.get("language") == "english", item.get("seeders") or 0,
@@ -536,9 +536,12 @@ class JackSparrow:
             episode = episode_key(item["title"])
             group = (item["tracked_title"].casefold(), episode) if episode else (item["tracked_title"].casefold(), item["key"])
             if group in grouped:
+                if len(grouped[group]["alternatives"]) < 5:
+                    grouped[group]["alternatives"].append(item)
                 continue
-            grouped.add(group)
-            results.append(item)
+            selected = {**item, "alternatives": []}
+            grouped[group] = selected
+            results.append(selected)
         return results
 
     def mark_match_seen(self, key):
@@ -552,13 +555,14 @@ class JackSparrow:
             self.save(state)
 
     def manage(self, job_id, action):
-        if action not in ("pause", "resume", "remove"):
+        if action not in ("pause", "resume", "remove", "verify"):
             raise ValueError("Unknown download action")
         with LOCK:
             state = self.read()
             if str(job_id) not in state["jobs"]:
                 raise ValueError("Unknown download")
-            method = {"pause": "torrent-stop", "resume": "torrent-start", "remove": "torrent-remove"}[action]
+            method = {"pause": "torrent-stop", "resume": "torrent-start", "remove": "torrent-remove",
+                      "verify": "torrent-verify"}[action]
             arguments = {"ids": [int(job_id)]}
             if action == "remove":
                 arguments["delete-local-data"] = False

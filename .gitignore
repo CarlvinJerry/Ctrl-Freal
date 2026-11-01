@@ -19,6 +19,7 @@ preferences.json.new
 .jack_sparrow.json
 .jack_sparrow.json.new
 .app-icons/
+.posters/
 android-viewer/build/
 __pycache__/
 *.py[cod]

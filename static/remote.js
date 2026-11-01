@@ -326,9 +326,19 @@ function jackButton(label, onclick) {
   return button;
 }
 
-function jackCard(title, detail) {
+function jackCard(title, detail, artwork) {
   const card = document.createElement("div");
   card.className = "jackCard";
+  if (artwork) {
+    const image = document.createElement("img");
+    image.className = "jackArtwork";
+    image.src = artwork;
+    image.alt = "";
+    image.loading = "lazy";
+    image.onerror = () => { image.remove(); card.classList.remove("hasArtwork"); };
+    card.append(image);
+    card.classList.add("hasArtwork");
+  }
   const heading = document.createElement("strong");
   heading.textContent = title;
   const small = document.createElement("small");
@@ -382,7 +392,7 @@ function jackRenderResults() {
     const tracked = jackTracked.some(t => item.title.toLowerCase().includes(t.title.toLowerCase()));
     const completed = jackCompleted(item);
     const detail = `${completed ? "Downloaded · " : ""}${tracked ? "★ Tracked · " : ""}${item.indexer_name || (item.source === "archive" ? "Archive" : "Feed")} · ${item.category || "other"} · ${item.quality} · ${item.language === "english" ? "English" : item.language === "other" ? "Other language" : "Language unlisted"}${item.seeders !== null ? " · " + item.seeders + " seeders" : ""}${item.date ? " · " + item.date : ""}`;
-    const card = jackCard(item.title, detail);
+    const card = jackCard(item.title, detail, item.artwork);
     if (completed) {
       card.classList.add("downloaded");
       if (jackJobs.some(job => job.imported && (job.source_ref || job.title) === (item.id || item.url || item.title))) {
@@ -396,9 +406,15 @@ function jackRenderResults() {
   $("jackMessage").textContent = `${results.length} results shown`;
 }
 
-async function jackSearch() {
+async function jackSearch(allowEmpty = false) {
   const serial = ++jackSearchSerial;
   const query = $("jackQuery").value.trim();
+  if (!query && allowEmpty !== true) {
+    jackResultsRaw = [];
+    $("jackResults").replaceChildren();
+    $("jackMessage").textContent = "Search a title or explore latest releases.";
+    return;
+  }
   const params = new URLSearchParams({q:query,quality:$("jackQuality").value,source:$("jackSource").value});
   $("jackMessage").textContent = "Searching sources…";
   $("jackResults").replaceChildren();
@@ -427,7 +443,9 @@ async function jackRefresh() {
       source.dataset.indexersLoaded = "1";
     }
     if (jackResultsRaw.length) jackRenderResults();
-    $("jackClientStatus").textContent = data.client_available ? "Torrent client ready" : "Torrent client unavailable on the Pi";
+    $("jackClientStatus").textContent = data.jobs_refreshing ?
+      "Download status delayed; last known progress is shown" :
+      data.client_available ? "Torrent client ready" : "Torrent service unavailable on the Pi";
     $("jackTracked").replaceChildren();
     data.tracked.filter(item => !(item.category === "movie" && jackCompletedHistory.some(done => {
       const name = done.title.toLowerCase().replace(/^[\s._-]+/, "");
@@ -444,33 +462,55 @@ async function jackRefresh() {
     });
     $("jackMatches").replaceChildren();
     $("jackNotices").replaceChildren();
+    const noticeGroups = new Map();
     (data.notices || []).forEach(item => {
-      const card = jackCard(item.title, item.detail);
-      const actions = document.createElement("div");
-      actions.className = "jackActions";
-      actions.append(jackButton("Search", () => { $("jackQuery").value = item.query; jackSearch(); $("jackResults").scrollIntoView({behavior:"smooth"}); }),
-        jackButton("Dismiss", async () => { try { await jackPost("/api/jack/notice/dismiss", {key:item.key}); await jackRefresh(); } catch (error) { toast(error.message); } }));
-      card.append(actions);
-      $("jackNotices").append(card);
+      const group = item.kind === "episode" ? item.title : (item.query || item.title);
+      if (!noticeGroups.has(group)) noticeGroups.set(group, []);
+      noticeGroups.get(group).push(item);
     });
+    for (const [name, notices] of noticeGroups) {
+      const group = document.createElement("details");
+      group.className = "jackGroup";
+      const summary = document.createElement("summary");
+      summary.textContent = `${name} · ${notices.length} update${notices.length === 1 ? "" : "s"}`;
+      group.append(summary);
+      const list = document.createElement("div");
+      list.className = "jackGroupItems";
+      notices.forEach(item => {
+        const card = jackCard(item.title, item.detail, item.artwork);
+        const actions = document.createElement("div");
+        actions.className = "jackActions";
+        actions.append(jackButton("Search", () => { $("jackQuery").value = item.query; jackSearch(); $("jackResults").scrollIntoView({behavior:"smooth"}); }),
+          jackButton("Dismiss", async () => { try { await jackPost("/api/jack/notice/dismiss", {key:item.key}); await jackRefresh(); } catch (error) { toast(error.message); } }));
+        card.append(actions);
+        list.append(card);
+      });
+      group.append(list);
+      $("jackNotices").append(group);
+    }
     $("jackMatchCount").textContent = `(${data.matches.length})`;
     data.matches.filter(item => !item.seen).forEach(item => {
-      const card = jackCard(item.title, `New match for ${item.tracked_title} · ${item.quality}`);
-      card.classList.add("jackMatchCard");
-      const actions = document.createElement("div");
-      actions.className = "jackActions";
-      async function seen() {
-        try { await jackPost("/api/jack/match-seen", {key:item.key}); await jackRefresh(); }
+      const choices = [item, ...(item.alternatives || [])];
+      const group = document.createElement("details");
+      group.className = "jackGroup";
+      const summary = document.createElement("summary");
+      const episode = item.title.match(/S\d{1,2}[ ._-]*E\d{1,2}/i)?.[0] || "New release";
+      summary.textContent = `${item.tracked_title} · ${episode} · ${choices.length} option${choices.length === 1 ? "" : "s"}`;
+      group.append(summary);
+      const list = document.createElement("div");
+      list.className = "jackGroupItems";
+      choices.forEach(choice => {
+        const card = jackCard(choice.title, `${choice.indexer_name || choice.source || "Source"} · ${choice.quality} · ${choice.seeders || 0} seeders`, item.artwork);
+        card.classList.add("jackMatchCard");
+        card.append(jackButton("Review", () => jackReview(choice)));
+        list.append(card);
+      });
+      group.append(list);
+      group.append(jackButton("Dismiss episode", async () => {
+        try { for (const choice of choices) await jackPost("/api/jack/match-seen", {key:choice.key}); await jackRefresh(); }
         catch (error) { toast(error.message); }
-      }
-      actions.append(jackButton("Review", () => jackReview(item)), jackButton("Dismiss", seen));
-      card.append(actions);
-      $("jackMatches").append(card);
-      const noticeKey = `jackMatch:${item.key}`;
-      if (!localStorage.getItem(noticeKey)) {
-        localStorage.setItem(noticeKey, "1");
-        toast(`New match for ${item.tracked_title}`);
-      }
+      }));
+      $("jackMatches").append(group);
     });
     $("jackFeeds").replaceChildren();
     data.feeds.forEach(url => {
@@ -506,6 +546,7 @@ async function jackRefresh() {
         catch (error) { toast(error.message); }
       }
       if (!done) actions.append(jackButton(job.status === 0 ? "Resume" : "Pause", () => manage(job.status === 0 ? "resume" : "pause")));
+      if (job.health === "error") actions.append(jackButton("Verify files", () => manage("verify")));
       if (job.health === "stalled" || job.health === "error") actions.append(jackButton("Find another", () => {
         $("jackQuery").value = job.title;
         $("jackSource").value = "indexers";
@@ -547,10 +588,11 @@ async function jackRefresh() {
 }
 
 function installJack() {
-  $("jackSearchButton").onclick = jackSearch;
+  $("jackSearchButton").onclick = () => jackSearch();
+  $("jackExploreLatest").onclick = () => { $("jackQuery").value = ""; jackSearch(true); };
   $("jackQuery").onkeydown = event => { if (event.key === "Enter") jackSearch(); };
-  $("jackSource").onchange = jackSearch;
-  $("jackQuality").onchange = jackSearch;
+  $("jackSource").onchange = () => jackSearch();
+  $("jackQuality").onchange = () => jackSearch();
   $("jackType").onchange = jackRenderResults;
   $("jackOrder").onchange = jackRenderResults;
   $("jackFeedButton").onclick = async () => {
@@ -587,7 +629,7 @@ function installJack() {
   jackRefresh();
   jackSearch();
   setInterval(jackRefresh, 30000);
-  setInterval(() => { if (!document.hidden) jackSearch(); }, 600000);
+  setInterval(() => { if (!document.hidden && $("jackQuery").value.trim()) jackSearch(); }, 600000);
 }
 
 function setPadMode(mode) {
@@ -754,6 +796,7 @@ function renderApps() {
   remoteFavorites.replaceChildren();
 
   const selectedFavorites = favorites.filter(id => apps[id]);
+  $("appCount").textContent = `(${Math.max(0, Object.keys(apps).length - 1)})`;
   $("appsMessage").textContent = Object.keys(apps).length > 1
     ? "TV apps and Pi shortcuts"
     : "No installed apps found. Check TV diagnostics and refresh.";
@@ -848,8 +891,19 @@ function renderApps() {
 
 function appButtonContent(button, id, favorite) {
   button.classList.add("tvAppButton");
-  if (apps[id].icon) {
+  button.setAttribute("aria-label", apps[id].name);
+  if (apps[id].banner) {
+    button.classList.add("hasBanner");
+    const banner = document.createElement("img");
+    banner.className = "tvAppBanner";
+    banner.src = apps[id].banner;
+    banner.alt = "";
+    banner.loading = "lazy";
+    banner.onerror = () => { banner.remove(); button.classList.remove("hasBanner"); button.querySelector(".tvAppName")?.classList.remove("srOnly"); };
+    button.append(banner);
+  } else if (apps[id].icon) {
     const icon = document.createElement("img");
+    icon.className = "tvAppIcon";
     icon.src = apps[id].icon;
     icon.alt = "";
     icon.loading = "lazy";
@@ -857,8 +911,16 @@ function appButtonContent(button, id, favorite) {
     button.append(icon);
   }
   const label = document.createElement("span");
-  label.textContent = (favorite ? "★ " : "") + apps[id].name;
+  label.className = "tvAppName" + (apps[id].banner ? " srOnly" : "");
+  label.textContent = apps[id].name;
   button.append(label);
+  if (favorite) {
+    const star = document.createElement("span");
+    star.className = "tvAppStar";
+    star.textContent = "★";
+    star.setAttribute("aria-hidden", "true");
+    button.append(star);
+  }
 }
 
 async function pollAppIcons() {
@@ -872,6 +934,9 @@ async function pollAppIcons() {
     let changed = false;
     Object.entries(data.icons || {}).forEach(([id, url]) => {
       if (apps[id] && apps[id].icon !== url) { apps[id].icon = url; changed = true; }
+    });
+    Object.entries(data.banners || {}).forEach(([id, url]) => {
+      if (apps[id] && apps[id].banner !== url) { apps[id].banner = url; changed = true; }
     });
     if (changed) renderApps();
   } catch (error) { console.debug("App icons unavailable", error); }
@@ -1041,6 +1106,96 @@ async function loadApps(refresh = false) {
     renderScenes();
     $("appsMessage").textContent = "App discovery unavailable. Check the TV's ADB connection, then refresh.";
   }
+}
+
+function mediaButton(title, artwork, detail, onclick) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "mediaButton";
+  if (artwork) {
+    const image = document.createElement("img");
+    image.src = artwork;
+    image.alt = "";
+    image.loading = "lazy";
+    image.onerror = () => image.remove();
+    button.append(image);
+  }
+  const words = document.createElement("span");
+  const strong = document.createElement("strong");
+  strong.textContent = title;
+  const small = document.createElement("small");
+  small.textContent = detail;
+  words.append(strong, small);
+  button.append(words);
+  button.onclick = onclick;
+  return button;
+}
+
+async function loadContinueWatching() {
+  try {
+    const response = await fetch("/api/plex/continue", {cache:"no-store"});
+    if (!response.ok) return;
+    const data = await response.json();
+    const row = $("continueRow");
+    row.replaceChildren();
+    for (const item of data.items || []) {
+      row.append(mediaButton(item.title, item.artwork, `${item.progress}% watched · Open Plex`, () => {
+        if (apps.plex) launchApp("plex");
+        else toast("Install or select Plex on this TV to continue watching");
+      }));
+    }
+    $("continueSection").hidden = !row.childElementCount;
+  } catch (error) { console.debug("Continue Watching unavailable", error); }
+}
+
+async function updateEcosystem() {
+  try {
+    const response = await fetch("/api/ecosystem", {cache:"no-store"});
+    if (!response.ok) return;
+    const data = await response.json();
+    const strip = $("ecosystemStrip");
+    strip.replaceChildren();
+    const items = [["Pi", true], ["Plex", data.services?.plex],
+      ["Downloads", data.services?.downloads], ["Search", data.services?.indexers]];
+    for (const [label, ready] of items) {
+      const chip = document.createElement("span");
+      chip.className = ready === true ? "healthGood" : ready === false ? "healthBad" : "";
+      chip.textContent = `${ready === true ? "●" : ready === false ? "○" : "·"} ${label}`;
+      strip.append(chip);
+    }
+    if (data.storage) {
+      const chip = document.createElement("span");
+      chip.textContent = `${jackBytes(data.storage.free)} free`;
+      strip.append(chip);
+    }
+  } catch (error) { console.debug("Pi health unavailable", error); }
+}
+
+async function globalSearch() {
+  const query = $("globalQuery").value.trim();
+  if (query.length < 2) return toast("Enter at least two characters");
+  const dialog = $("globalSearchDialog");
+  if (!dialog.open) dialog.showModal();
+  $("globalSearchStatus").textContent = "Searching apps, Plex and Jack…";
+  for (const id of ["globalApps", "globalPlex", "globalJack"]) $(id).replaceChildren();
+  const matchingApps = Object.entries(apps).filter(([, app]) => app.name.toLowerCase().includes(query.toLowerCase())).slice(0, 12);
+  for (const [id, app] of matchingApps) $("globalApps").append(mediaButton(app.name, app.icon, "Open on TV", () => { dialog.close(); launchApp(id); }));
+  if (!matchingApps.length) $("globalApps").textContent = "No matching TV apps";
+  const params = new URLSearchParams({q:query});
+  const plexTask = fetch(`/api/plex/search?${params}`, {cache:"no-store"}).then(r => r.json()).then(data => {
+    for (const item of data.items || []) $("globalPlex").append(mediaButton(item.title, item.artwork, "Open Plex on TV", () => {
+      dialog.close(); if (apps.plex) launchApp("plex"); else toast("Plex is not available on this TV");
+    }));
+    if (!$("globalPlex").childElementCount) $("globalPlex").textContent = "No matching Plex titles";
+  }).catch(() => { $("globalPlex").textContent = "Plex search unavailable"; });
+  const jackTask = fetch(`/api/jack/search?${new URLSearchParams({q:query,quality:"any",source:"all"})}`, {cache:"no-store"})
+    .then(r => r.json()).then(data => {
+      for (const item of (data.results || []).slice(0, 12)) $("globalJack").append(mediaButton(item.title, item.artwork,
+        `${item.quality} · ${item.indexer_name || item.source}`, () => { dialog.close(); jackReview(item); }));
+      if (!$("globalJack").childElementCount) $("globalJack").textContent = "No matching releases";
+    }).catch(() => { $("globalJack").textContent = "Jack search unavailable"; });
+  await Promise.all([plexTask, jackTask]);
+  $("globalSearchStatus").textContent = "Search complete";
 }
 
 function installVoice() {
@@ -1243,6 +1398,12 @@ async function init() {
   renderApps();
   renderScenes();
   loadApps();
+  loadContinueWatching();
+  updateEcosystem();
+  $("globalSearchButton").onclick = globalSearch;
+  $("globalQuery").onkeydown = event => { if (event.key === "Enter") globalSearch(); };
+  $("closeGlobalSearch").onclick = () => $("globalSearchDialog").close();
+  setInterval(() => { if (!document.hidden) { loadContinueWatching(); updateEcosystem(); } }, 60000);
   setInterval(pollAppIcons, 12000);
   $("saveScene").onclick = saveScene;
   $("toggleScreensaver").onclick = toggleScreensaver;
