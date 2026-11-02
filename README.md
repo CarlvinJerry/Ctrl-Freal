@@ -4,7 +4,7 @@ Self-hosted remote for Android TV / Google TV and LG webOS. The Raspberry Pi run
 
 ## Version
 
-Current app version: **3.13.0**. `version.py` is the single source for the displayed version and bootstrap API. Use semantic versioning (`MAJOR.MINOR.PATCH`): increment major for incompatible releases, minor for backward-compatible features, and patch for fixes. Update `version.py` with each release.
+Current app version: **3.14.0**. `version.py` is the single source for the displayed version and bootstrap API. Use semantic versioning (`MAJOR.MINOR.PATCH`): increment major for incompatible releases, minor for backward-compatible features, and patch for fixes. Update `version.py` with each release.
 
 ## Add a TV
 
@@ -62,3 +62,5 @@ Paired TVs and credentials stay in `tvs.json` on the Pi. Every two minutes, Ctrl
 **v3.12.1:** The Pi's local MagicMirror Electron window reopens when the HDMI display changes resolution after the LG wakes. This keeps the original mirror layout responsive without changing its server CSS or the Android TV viewer. The TCL pairing was verified after it rejoined Wi-Fi; keep both Wi-Fi bands on the same LAN and reserve TV and Pi addresses in the router.
 
 **v3.13.0:** Saved Android TVs can be found by subnet checks even when another TV's network announcement is received. Saved LG TVs can now be recovered at a new IP without pairing again when their previously saved MAC address matches. Stale connections at the same IP are refreshed, too. These checks run automatically and through **Find saved TVs**.
+
+**v3.14.0:** Settings lists paired TVs with Enable, Disable, and Remove controls. Disabling hides a TV from the remote and pauses its connection while retaining pairing and preferences; removal is available only after disabling. The older duplicate TCL entry is disabled on the Pi. The TCL MagicMirror viewer uses an explicit TV-sized viewport with edge-to-edge content and slideshow, independent of the original MagicMirror page. Jack imports episodes to `Series/Show/Season NN` even when the release title says "Season" rather than `SxxExx`.

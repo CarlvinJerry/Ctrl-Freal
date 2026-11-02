@@ -38,7 +38,7 @@ SECRET = (BASE / ".session_secret").read_text().strip()
 PORT = int(os.getenv("REMOTE_PORT", "8091"))
 MAGICMIRROR_URL = os.getenv("REMOTE_MAGICMIRROR_URL", "http://192.168.1.21:8080/")
 VIEWER_PACKAGE = "com.ctrlfreak.magicmirror"
-VIEWER_VERSION_CODE = 11
+VIEWER_VERSION_CODE = 16
 VIEWER_DREAM = f"{VIEWER_PACKAGE}/.MirrorDreamService"
 VIEWER_APK = BASE / "static" / "magicmirror-viewer.apk"
 JACK = JackSparrow(BASE, media_root=os.getenv("JACK_MEDIA_ROOT", "/media/carlvinjerry/Views"))
@@ -149,7 +149,7 @@ def validate_preferences(data, tv_config=None):
     if not isinstance(scenes, list) or len(scenes) > 12:
         raise ValueError("Too many scenes")
     clean_scenes = []
-    tvs = tv_config if tv_config is not None else read_tvs()
+    tvs = tv_config if tv_config is not None else read_all_tvs()
     for item in scenes:
         if not isinstance(item, dict):
             raise ValueError("Invalid scene")
@@ -393,7 +393,7 @@ async def _lg_apps(connection):
     return {entry["id"]: {"name": entry.get("title") or entry["id"], "package": entry["id"]}
             for entry in entries if isinstance(entry, dict) and isinstance(entry.get("id"), str)}
 
-def read_tvs():
+def read_all_tvs():
     data = json.loads(CONFIG.read_text())
     return {
         k: v for k, v in data.items()
@@ -401,6 +401,10 @@ def read_tvs():
         and all(x in v for x in ("name", "host"))
         and (all(x in v for x in ("cert", "key")) if v.get("type", "android") == "android" else bool(v.get("client_key")))
     }
+
+def read_tvs():
+    return {tv_id: config for tv_id, config in read_all_tvs().items()
+            if config.get("active", True)}
 
 
 def save_lg_mac(tv_id, mac):
@@ -869,6 +873,16 @@ async def recover_saved_tvs():
 
 async def connect_on_startup(connection):
     while True:
+        if connection.id not in read_tvs() or controller.connections.get(connection.id) is not connection:
+            if connection.remote is not None:
+                if isinstance(connection, LGConnection):
+                    try:
+                        await connection.remote.disconnect()
+                    except Exception:
+                        pass
+                else:
+                    connection.remote.disconnect()
+            return
         try:
             if not connection.connected:
                 await connection.connect()
@@ -1128,7 +1142,7 @@ def export_backup():
         return jsonify(error="Unauthorized or invalid session"), 403
     password = (request.get_json(silent=True) or {}).get("password", "")
     try:
-        bundle = make_bundle(BASE, read_tvs(), read_preferences(), JACK.read())
+        bundle = make_bundle(BASE, read_all_tvs(), read_preferences(), JACK.read())
         encrypted = seal(bundle, password)
         return send_file(io.BytesIO(encrypted), mimetype="application/octet-stream",
                          as_attachment=True, download_name="ctrl-freak.cfbackup")
@@ -1165,7 +1179,7 @@ def restore_backup():
             if not raw or len(raw) > 100_000 or b"-----BEGIN " not in raw:
                 raise ValueError("Invalid pairing credential")
             credentials[name] = raw
-        merged = {**read_tvs(), **incoming}
+        merged = {**read_all_tvs(), **incoming}
         preferences = validate_preferences(bundle.get("preferences"), merged)
         backgrounds = {}
         for tv_id, encoded_image in bundle.get("backgrounds", {}).items():
@@ -1604,10 +1618,65 @@ def discover_tvs():
         return jsonify(error="Unauthorized"), 401
     try:
         devices = discover_android() + discover_webos()
-        paired = {v["host"] for v in read_tvs().values()}
+        paired = {v["host"] for v in read_all_tvs().values()}
         return jsonify(devices=[item for item in devices if item["host"] not in paired])
     except RuntimeError as exc:
         return jsonify(error=str(exc)), 503
+
+@app.get("/api/tvs/saved")
+def saved_tvs():
+    if not authenticated():
+        return jsonify(error="Unauthorized"), 401
+    return jsonify(tvs=[{"id": tv_id, "name": config["name"],
+                         "host": config["host"], "type": config.get("type", "android"),
+                         "active": config.get("active", True)}
+                        for tv_id, config in read_all_tvs().items()])
+
+
+@app.post("/api/tvs/<tv_id>/active")
+def set_tv_active(tv_id):
+    if not valid_post():
+        return jsonify(error="Unauthorized or invalid session"), 403
+    data = request.get_json(silent=True) or {}
+    active = data.get("active")
+    if not isinstance(active, bool):
+        return jsonify(error="Choose whether to enable this TV"), 400
+    with CONFIG_LOCK:
+        raw = json.loads(CONFIG.read_text())
+        if tv_id not in read_all_tvs():
+            return jsonify(error="Unknown TV"), 404
+        if not active and sum(config.get("active", True) for config in raw.values()
+                              if isinstance(config, dict)) <= 1:
+            return jsonify(error="Keep at least one TV enabled"), 400
+        raw[tv_id]["active"] = active
+        temp = CONFIG.with_name(CONFIG.name + ".new")
+        temp.write_text(json.dumps(raw, indent=2))
+        os.chmod(temp, 0o600)
+        os.replace(temp, CONFIG)
+    if active:
+        start_tv_connection(tv_id)
+    else:
+        controller.connections.pop(tv_id, None)
+    return jsonify(ok=True, active=active)
+
+
+@app.delete("/api/tvs/<tv_id>")
+def remove_saved_tv(tv_id):
+    if not valid_post():
+        return jsonify(error="Unauthorized or invalid session"), 403
+    with CONFIG_LOCK:
+        raw = json.loads(CONFIG.read_text())
+        if tv_id not in read_all_tvs():
+            return jsonify(error="Unknown TV"), 404
+        if raw[tv_id].get("active", True):
+            return jsonify(error="Disable this TV before removing it"), 400
+        del raw[tv_id]
+        temp = CONFIG.with_name(CONFIG.name + ".new")
+        temp.write_text(json.dumps(raw, indent=2))
+        os.chmod(temp, 0o600)
+        os.replace(temp, CONFIG)
+    controller.connections.pop(tv_id, None)
+    return jsonify(ok=True)
 
 
 @app.post("/api/tvs/reconnect")
@@ -1635,7 +1704,7 @@ def pair_start():
     data = request.get_json(silent=True) or {}
     try:
         tv_id = data.get("id", "")
-        if tv_id in read_tvs():
+        if tv_id in read_all_tvs():
             raise ValueError("That TV name is already in use")
         name = data.get("name", "")
         token, step = start_pairing(BASE, controller.loop, data.get("type"), data.get("host"), name.strip() if isinstance(name, str) else name, tv_id)

@@ -272,7 +272,9 @@
   <pre id="diagnostics">Waiting for status...</pre>
   <button id="refreshStatus">Refresh status</button>
   <h3>Saved TVs</h3>
-  <p class="hint">Pairing stays saved on the Pi. Find a saved TV again if its IP address changes.</p>
+  <p class="hint">Disable an old entry to hide it from the remote. You can enable it again without pairing. Remove a disabled entry when you no longer need it.</p>
+  <div id="savedTvList" class="savedTvList" aria-live="polite"></div>
+  <p id="savedTvMessage" class="hint" role="status"></p>
   <button id="reconnectSaved" type="button">Find saved TVs</button>
   <p id="reconnectSavedMessage" class="hint" role="status"></p>
   <h3>Backup &amp; restore</h3>

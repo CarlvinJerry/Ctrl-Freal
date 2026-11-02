@@ -158,6 +158,62 @@ async function pairingPost(path, data) {
   return result;
 }
 
+async function loadSavedTvs() {
+  const list = $("savedTvList");
+  const message = $("savedTvMessage");
+  try {
+    const response = await fetch("/api/tvs/saved", {cache:"no-store"});
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Could not load saved TVs");
+    list.replaceChildren();
+    for (const item of result.tvs) {
+      const row = document.createElement("div");
+      row.className = "savedTvRow";
+      const details = document.createElement("div");
+      details.className = "savedTvDetails";
+      const name = document.createElement("strong");
+      name.textContent = item.name;
+      const meta = document.createElement("span");
+      meta.textContent = `${item.type === "webos" ? "LG webOS" : "Android TV"} · ${item.host} · ${item.active ? "Enabled" : "Disabled"}`;
+      details.append(name, meta);
+      const actions = document.createElement("div");
+      actions.className = "savedTvActions";
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.textContent = item.active ? "Disable" : "Enable";
+      toggle.onclick = async () => {
+        toggle.disabled = true;
+        try {
+          await pairingPost(`/api/tvs/${encodeURIComponent(item.id)}/active`, {active:!item.active});
+          location.reload();
+        } catch (error) { message.textContent = error.message; toggle.disabled = false; }
+      };
+      actions.append(toggle);
+      if (!item.active) {
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.textContent = "Remove";
+        remove.onclick = async () => {
+          if (!confirm(`Remove ${item.name} from paired TVs? You would need to pair it again to use it.`)) return;
+          remove.disabled = true;
+          try {
+            const response = await fetch(`/api/tvs/${encodeURIComponent(item.id)}`, {
+              method:"DELETE", headers:{"X-CSRF-Token":csrf}
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || "Could not remove TV");
+            location.reload();
+          } catch (error) { message.textContent = error.message; remove.disabled = false; }
+        };
+        actions.append(remove);
+      }
+      row.append(details, actions);
+      list.append(row);
+    }
+    message.textContent = "";
+  } catch (error) { message.textContent = error.message; }
+}
+
 function pairInstructions() {
   const lg = $("pairType").value === "webos";
   $("pairInstructions").textContent = lg
@@ -1410,6 +1466,7 @@ async function init() {
 
   const data = await response.json();
   csrf = data.csrf;
+  loadSavedTvs();
   installJack();
   tvNames = Object.fromEntries(Object.entries(data.tvs).map(([id, config]) => [id, config.name]));
   try {

@@ -8,11 +8,59 @@ from unittest.mock import patch
 import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from jack_sparrow import JackSparrow, clean_title, quality_of, language_of
+from jack_sparrow import JackSparrow, clean_title, quality_of, language_of, transmission_source
 import xml.etree.ElementTree as ET
 
 
 class JackSparrowTest(unittest.TestCase):
+    def test_jackett_redirect_to_magnet_is_resolved(self):
+        import urllib.error
+        from email.message import Message
+        headers = Message()
+        magnet = 'magnet:?xt=urn:btih:' + 'A' * 40
+        headers['Location'] = magnet
+        redirect = urllib.error.HTTPError('http://127.0.0.1:9117/dl/1', 302, 'Found', headers, None)
+        with patch('jack_sparrow.urllib.request.build_opener') as opener:
+            opener.return_value.open.side_effect = redirect
+            self.assertEqual(transmission_source('http://127.0.0.1:9117/dl/1'), {'filename': magnet})
+
+    def test_invalid_magnet_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, 'invalid magnet'):
+            transmission_source('magnet:?xt=urn:btih:bad')
+
+    def test_movie_import_uses_plex_movies_title_folder(self):
+        with tempfile.TemporaryDirectory() as temp:
+            media = Path(temp) / "media"
+            (media / "Movies").mkdir(parents=True)
+            jack = JackSparrow(temp, media_root=media)
+            jack.staging.mkdir()
+            source = jack.staging / "Example.Film.2026.1080p.mkv"
+            with source.open("wb") as file:
+                file.truncate(1_000_000)
+            torrent = {"downloadDir": str(jack.staging), "files": [{"name": source.name}]}
+            job = {"category": "movie", "title": "Example Film 2026 1080p"}
+            imported = jack._import(torrent, job)
+            self.assertEqual(Path(imported[0]).parent, media / "Movies" / "Example Film (2026)")
+
+    def test_series_episodes_share_show_and_season_folder(self):
+        with tempfile.TemporaryDirectory() as temp:
+            media = Path(temp) / "media"
+            (media / "Series").mkdir(parents=True)
+            jack = JackSparrow(temp, media_root=media)
+            jack.staging.mkdir()
+            destinations = []
+            for episode in (2, 3):
+                name = f"Example.Show.S01E{episode:02d}.mkv"
+                source = jack.staging / name
+                with source.open("wb") as file:
+                    file.truncate(1_000_000)
+                torrent = {"downloadDir": str(jack.staging), "files": [{"name": name}]}
+                job = {"category": "series", "title": f"Example Show Season 1 Episode {episode}"}
+                destinations.extend(jack._import(torrent, job))
+            expected = media / "Series" / "Example Show" / "Season 01"
+            self.assertEqual({Path(path).parent for path in destinations}, {expected})
+            self.assertEqual(len(list(expected.glob("*.mkv"))), 2)
+
     def test_plex_import_status_changes_after_scan(self):
         with tempfile.TemporaryDirectory() as temp:
             jack = JackSparrow(temp)
@@ -123,15 +171,15 @@ class JackSparrowTest(unittest.TestCase):
             jack = JackSparrow(temp, media_root=Path(temp) / "media")
             result = {"title": "Sample Movie 2026 English 1080p", "source": "indexer",
                       "indexer": "thepiratebay", "indexer_name": "The Pirate Bay",
-                      "id": "candidate1", "_download": "magnet:?xt=urn:btih:abc",
+                      "id": "candidate1", "_download": "magnet:?xt=urn:btih:" + "A" * 40,
                       "quality": "1080p", "language": "english", "category": "movie", "seeders": 5}
             with patch.object(jack, "indexer_search", return_value=[result]):
                 found = jack.discover("Sample Movie", source="indexer:thepiratebay")["results"]
             self.assertNotIn("_download", found[0])
-            self.assertEqual(jack.read()["candidate_links"]["candidate1"]["url"], "magnet:?xt=urn:btih:abc")
+            self.assertEqual(jack.read()["candidate_links"]["candidate1"]["url"], "magnet:?xt=urn:btih:" + "A" * 40)
             with patch.object(jack, "rpc", return_value={"torrent-added": {"id": 9}}) as rpc:
                 jack.add("indexer", "movie", "1080p", identifier="candidate1", url="magnet:?xt=urn:btih:evil")
-                self.assertEqual(rpc.call_args.args[1]["filename"], "magnet:?xt=urn:btih:abc")
+                self.assertEqual(rpc.call_args.args[1]["filename"], "magnet:?xt=urn:btih:" + "A" * 40)
 
     def test_dismiss_notice_persists(self):
         with tempfile.TemporaryDirectory() as temp:

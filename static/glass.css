@@ -335,3 +335,11 @@ body[data-effects="off"] button:active { transform:none; }
 #toast.completionToast { border:1px solid var(--accent); animation:completionGlow .8s ease-out; }
 body[data-effects="off"] #toast.completionToast { animation:none; }
 @media(prefers-reduced-motion:reduce) { #toast.completionToast { animation:none; } }
+.savedTvList { display:grid; gap:8px; max-height:min(38dvh,360px); overflow:auto; padding:2px; scrollbar-width:thin; }
+.savedTvRow { display:flex; align-items:center; justify-content:space-between; gap:12px; min-width:0; padding:12px; border:1px solid var(--border); border-radius:16px; background:var(--panel); }
+.savedTvDetails { display:grid; gap:4px; min-width:0; }
+.savedTvDetails strong { overflow-wrap:anywhere; }
+.savedTvDetails span { color:var(--muted); font-size:12px; overflow-wrap:anywhere; }
+.savedTvActions { display:flex; gap:6px; flex-shrink:0; }
+.savedTvActions button { min-height:38px; padding:7px 10px; font-size:12px; }
+@media(max-width:430px) { .savedTvRow { align-items:flex-start; flex-direction:column; } .savedTvActions { align-self:flex-end; } }

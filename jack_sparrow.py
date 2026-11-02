@@ -1,6 +1,7 @@
 """Opt-in torrent discovery, downloads, and Plex import for Ctrl Freak."""
 
 import json
+import base64
 import hashlib
 import email.utils
 import os
@@ -36,6 +37,36 @@ INDEXERS = {
 INDEXER_CONFIG = Path("/home/carlvinjerry/tcl-remote/indexer/config/Jackett/ServerConfig.json")
 PLEX_DB = Path("/var/lib/plexmediaserver/Library/Application Support/Plex Media Server/Plug-in Support/Databases/com.plexapp.plugins.library.db")
 LOCK = threading.RLock()
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        return None
+
+
+def transmission_source(url):
+    """Resolve Jackett download redirects and hand Transmission a real torrent."""
+    if url.startswith("magnet:?"):
+        if not re.search(r"[?&]xt=urn:btih:[A-Za-z0-9]{32,40}(?:&|$)", url):
+            raise ValueError("This result has an invalid magnet link. Search again.")
+        return {"filename": url}
+    request = urllib.request.Request(url, headers={"User-Agent": "CtrlFreak/3.14"})
+    try:
+        with urllib.request.build_opener(_NoRedirect).open(request, timeout=12) as response:
+            if int(response.headers.get("Content-Length", "0")) > 10_000_000:
+                raise ValueError("Torrent file is too large")
+            data = response.read(10_000_001)
+    except urllib.error.HTTPError as exc:
+        if exc.code in (301, 302, 303, 307, 308):
+            target = exc.headers.get("Location", "")
+            if target.startswith("magnet:?"):
+                return transmission_source(target)
+        raise ValueError("This torrent source is unavailable. Search again or choose another result.") from exc
+    except (OSError, TimeoutError) as exc:
+        raise ValueError("This torrent source did not respond. Choose another result.") from exc
+    if len(data) > 10_000_000 or not data.startswith(b"d") or b"4:info" not in data:
+        raise ValueError("This source did not provide a valid torrent. Choose another result.")
+    return {"metainfo": base64.b64encode(data).decode("ascii")}
 
 
 def clean_title(value):
@@ -76,6 +107,15 @@ def category_of(title, metadata=None):
 def episode_key(title):
     match = re.search(r"(?i)\bS(\d{1,2})[ ._-]*E(\d{1,2})\b", title)
     return f"S{int(match[1]):02d}E{int(match[2]):02d}" if match else ""
+
+
+def series_identity(value):
+    """Extract a stable show and season from an episode or season-pack label."""
+    label = clean_title(Path(value).stem.replace(".", " ")).strip(" -_")
+    match = re.search(r"(?i)^(.+?)\s*(?:S(\d{1,2})(?:[ ._-]*E\d{1,2})?|Season\s+(\d{1,2}))(?:\b|[._ -])", label)
+    if not match:
+        return None, None
+    return clean_title(match.group(1)).strip(" -_"), int(match.group(2) or match.group(3))
 
 
 def _json_url(url):
@@ -346,6 +386,8 @@ class JackSparrow:
             if not (link.startswith("magnet:?xt=urn:btih:") or
                     link.startswith("http://127.0.0.1:9117/dl/")):
                 continue
+            if link.startswith("magnet:?") and not re.search(r"[?&]xt=urn:btih:[A-Za-z0-9]{32,40}(?:&|$)", link):
+                continue
             identity = attrs.get("infohash") or item.findtext("guid") or link
             ref = hashlib.sha256((name + "|" + identity).encode()).hexdigest()[:32]
             category_code = next((x.text for x in item.findall("category") if x.text), "")
@@ -408,8 +450,9 @@ class JackSparrow:
             words = re.findall(r"\w+", query.casefold())
             results = [x for x in results if all(word in x["title"].casefold() for word in words)]
         if quality != "any":
-            results = [x for x in results if x["quality"] in (quality, "varies", "unknown")]
+            results = [x for x in results if x["quality"] == quality or x["source"] == "archive"]
         results.sort(key=lambda x: (x.get("language") == "english",
+                                    x.get("quality") == "1080p",
                                     x.get("seeders") is not None, x.get("seeders") or 0), reverse=True)
         return {"results": results[:100], "errors": errors}
 
@@ -623,7 +666,13 @@ class JackSparrow:
             raise ValueError("This result is marked as " + known_quality + ", not " + quality)
         title = clean_title(str(title))
         self.staging.mkdir(parents=True, exist_ok=True)
-        result = self.rpc("torrent-add", {"filename": url, "download-dir": str(self.staging), "paused": False})
+        source_data = transmission_source(url)
+        try:
+            result = self.rpc("torrent-add", {**source_data, "download-dir": str(self.staging), "paused": False})
+        except RuntimeError as exc:
+            if "invalid" in str(exc).casefold() or "corrupt" in str(exc).casefold():
+                raise ValueError("This torrent source could not be opened. Choose another result.") from exc
+            raise
         if result.get("torrent-duplicate"):
             raise ValueError("This torrent is already in the download queue")
         torrent = result.get("torrent-added")
@@ -752,19 +801,24 @@ class JackSparrow:
         if not files:
             raise RuntimeError("No compatible media file found for Plex")
         title = clean_title(job["title"].replace(".", " "))
-        episode = re.search(r"(?i)^(.*?)\s*[._ -]*S(\d{1,2})E(\d{1,2})", title)
-        if job["category"] == "series" and episode:
-            show = clean_title(episode.group(1))
-            title_dir = target_root / show / ("Season " + episode.group(2).zfill(2))
-        else:
-            if job["category"] == "movie":
-                match = re.search(r"^(.*?)\s+\(?((?:19|20)\d{2})\)?(?:\s|$)", title)
-                if match:
-                    title = clean_title(match.group(1)) + " (" + match.group(2) + ")"
-            title_dir = target_root / title
-        title_dir.mkdir(parents=True, exist_ok=True)
+        job_show, job_season = series_identity(job["title"]) if job["category"] == "series" else (None, None)
+        if job["category"] == "movie":
+            match = re.search(r"^(.*?)\s+\(?((?:19|20)\d{2})\)?(?:\s|$)", title)
+            if match:
+                title = clean_title(match.group(1)) + " (" + match.group(2) + ")"
         imported_paths = []
         for path in files:
+            if job["category"] == "series":
+                file_show, file_season = series_identity(path.name)
+                show = job_show or file_show or title
+                show_dir = next((entry for entry in target_root.iterdir()
+                                 if entry.is_dir() and entry.name.casefold() == show.casefold()),
+                                target_root / show)
+                season = file_season or job_season
+                title_dir = show_dir / f"Season {season:02d}" if season else show_dir
+            else:
+                title_dir = target_root / title
+            title_dir.mkdir(parents=True, exist_ok=True)
             destination = title_dir / clean_title(path.name)
             if destination.exists():
                 continue
